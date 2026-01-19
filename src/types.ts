@@ -583,6 +583,11 @@ export const DEFAULT_CONFIG: CodeGraphConfig = {
     '**/Release/**',
     '**/x64/**',
 
+    // Electron
+    '**/release/**',
+    '**/*.app/**',
+    '**/*.asar',
+
     // Swift/iOS/Xcode
     '**/DerivedData/**',
     '**/.build/**',

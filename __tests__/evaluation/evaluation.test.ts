@@ -225,7 +225,11 @@ describe('CodeGraph Evaluation', () => {
 
       // Initialize and index
       cg = await CodeGraph.init(fixturePath, { index: true });
-    }, 60000);
+
+      // Initialize embeddings for semantic search
+      await cg.initializeEmbeddings();
+      await cg.generateEmbeddings();
+    }, 120000);
 
     afterAll(() => {
       // Print summary table after all tests
@@ -266,7 +270,11 @@ describe('CodeGraph Evaluation', () => {
 
       // Initialize and index
       cg = await CodeGraph.init(fixturePath, { index: true });
-    }, 60000);
+
+      // Initialize embeddings for semantic search
+      await cg.initializeEmbeddings();
+      await cg.generateEmbeddings();
+    }, 120000);
 
     afterAll(() => {
       // Print summary table after all tests

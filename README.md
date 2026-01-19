@@ -10,6 +10,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 
+<br />
+
+### Get Started
+
+```bash
+npx @colbymchenry/codegraph
+```
+
+<sub>Interactive installer configures Claude Code automatically</sub>
+
 </div>
 
 ---
@@ -106,16 +116,43 @@ Git hooks automatically sync the index on every commit. Your code intelligence i
 
 ## 🎯 Quick Start
 
-### Step 1: Install
+### 1. Run the Installer
 
+```bash
+npx @colbymchenry/codegraph
+```
+
+The interactive installer will:
+- Configure the MCP server in `~/.claude.json`
+- Set up auto-allow permissions for CodeGraph tools
+- Optionally initialize your current project
+
+### 2. Restart Claude Code
+
+Restart Claude Code for the MCP server to load.
+
+### 3. Initialize Projects
+
+For each project you want to use CodeGraph with:
+
+```bash
+cd your-project
+codegraph init -i
+```
+
+That's it! Claude Code will now use CodeGraph tools automatically when a `.codegraph/` directory exists.
+
+<details>
+<summary><strong>Manual Setup (Alternative)</strong></summary>
+
+If you prefer manual configuration:
+
+**Install globally:**
 ```bash
 npm install -g @colbymchenry/codegraph
 ```
 
-### Step 2: Configure Claude Code MCP
-
-Add to your `~/.claude.json` in the `mcpServers` section:
-
+**Add to `~/.claude.json`:**
 ```json
 {
   "mcpServers": {
@@ -128,9 +165,29 @@ Add to your `~/.claude.json` in the `mcpServers` section:
 }
 ```
 
-### Step 3: Add Global Instructions
+**Add to `~/.claude/settings.json` (optional, for auto-allow):**
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__codegraph__codegraph_search",
+      "mcp__codegraph__codegraph_context",
+      "mcp__codegraph__codegraph_callers",
+      "mcp__codegraph__codegraph_callees",
+      "mcp__codegraph__codegraph_impact",
+      "mcp__codegraph__codegraph_node",
+      "mcp__codegraph__codegraph_status"
+    ]
+  }
+}
+```
 
-Create or append to `~/.claude/CLAUDE.md`:
+</details>
+
+<details>
+<summary><strong>Recommended: Add Global Instructions</strong></summary>
+
+For best results, add to `~/.claude/CLAUDE.md`:
 
 ```markdown
 ## CodeGraph
@@ -152,43 +209,21 @@ CodeGraph builds a semantic knowledge graph of codebases for faster, smarter cod
 
 **When spawning Explore agents in a codegraph-enabled project:**
 
-Tell the Explore agent to use codegraph tools for faster exploration:
-
-Explore the codebase to understand [task].
-
-This project has CodeGraph initialized - use these tools for faster lookups:
-- codegraph_search to find relevant symbols
-- codegraph_callers/codegraph_callees to trace call graphs
-- codegraph_context to get related code for the task
-- codegraph_node with includeCode=true to read specific functions
+Tell the Explore agent to use codegraph tools for faster exploration.
 
 **For quick lookups in the main session:**
 - Use `codegraph_search` instead of grep for finding symbols
 - Use `codegraph_callers`/`codegraph_callees` to trace code flow
 - Use `codegraph_impact` before making changes to see what's affected
 
-**Note:** CodeGraph provides CODE context, not product requirements. For new features, clarify UX preferences with the user before implementing.
-
 ### If `.codegraph/` does NOT exist
 
 At the start of a session, ask the user if they'd like to initialize CodeGraph:
 
-"I notice this project doesn't have CodeGraph initialized. Would you like me to run `codegraph init -i` to build a code knowledge graph? This enables faster code exploration via semantic search and call graph analysis."
-
-If they agree, run:
-codegraph init -i
+"I notice this project doesn't have CodeGraph initialized. Would you like me to run `codegraph init -i` to build a code knowledge graph?"
 ```
 
-### Step 4: Initialize Your Projects
-
-```bash
-cd your-project
-codegraph init -i    # Initialize and index
-```
-
-### Step 5: Restart Claude Code
-
-Restart Claude Code for the MCP server to load. The tools will be available in any project with a `.codegraph/` directory.
+</details>
 
 ---
 
@@ -201,6 +236,8 @@ Restart Claude Code for the MCP server to load. The tools will be available in a
 ## 💻 CLI Usage
 
 ```bash
+codegraph                   # Run interactive installer
+codegraph install           # Run interactive installer (explicit)
 codegraph init [path]       # Initialize in a project
 codegraph index [path]      # Full index
 codegraph sync [path]       # Incremental update
@@ -212,6 +249,22 @@ codegraph serve --mcp       # Start MCP server
 ```
 
 ## 📖 CLI Commands
+
+### `codegraph` / `codegraph install`
+
+Run the interactive installer for Claude Code integration. Configures MCP server and permissions automatically.
+
+```bash
+codegraph                         # Run installer (when no args)
+codegraph install                 # Run installer (explicit)
+npx @colbymchenry/codegraph       # Run via npx (no global install needed)
+```
+
+The installer will:
+1. Ask for installation location (global `~/.claude` or local `./.claude`)
+2. Configure the MCP server in `claude.json`
+3. Optionally set up auto-allow permissions
+4. For local installs: initialize and index the current project
 
 ### `codegraph init [path]`
 

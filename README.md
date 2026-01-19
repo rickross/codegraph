@@ -4,7 +4,7 @@
 
 ### Supercharge Claude Code with Semantic Code Intelligence
 
-**2x faster exploration • 40% fewer tokens • Zero API costs**
+**30% fewer tokens • 25% fewer tool calls • 100% local**
 
 [![npm version](https://img.shields.io/npm/v/@colbymchenry/codegraph.svg)](https://www.npmjs.com/package/@colbymchenry/codegraph)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -26,44 +26,79 @@ npx @colbymchenry/codegraph
 
 ## 🚀 Why CodeGraph?
 
-Without CodeGraph, Claude Code spawns expensive exploration agents that make dozens of API calls to understand your codebase. **CodeGraph changes that.**
+When you ask Claude Code to work on a complex task, it spawns **Explore agents** that scan your codebase using grep, glob, and file reads. These agents consume tokens with every tool call.
 
-<table>
-<tr>
-<td width="50%">
+**CodeGraph gives those agents a semantic knowledge graph** — pre-indexed symbol relationships, call graphs, and code structure. Instead of scanning files, agents query the graph instantly.
 
-### ❌ Without CodeGraph
-```
-Exploring codebase...
-↳ 21 tool calls
-↳ 37,700 tokens consumed
-↳ 70 seconds
-↳ ~$0.50-2.00 per exploration
-```
+### 📊 Benchmark Results
 
-</td>
-<td width="50%">
-
-### ✅ With CodeGraph
-```
-Building context...
-↳ 1-3 tool calls
-↳ Local MCP (0 tokens)
-↳ 35 seconds
-↳ $0.00 for exploration
-```
-
-</td>
-</tr>
-</table>
-
-### 📊 Real-World Results
+We ran the same complex task 3 times with and without CodeGraph:
 
 | Metric | Without CodeGraph | With CodeGraph | Improvement |
 |--------|-------------------|----------------|-------------|
-| **Speed** | 70s | 35s | **2x faster** |
-| **Tokens per task** | ~40,000 | ~0 (local) | **40,000 saved** |
-| **Cost per exploration** | $0.50-2.00 | $0.00 | **Free** |
+| **Explore tokens** | 157.8k | 111.7k | **29% fewer** |
+| **Per-agent tokens** | 74.0k | 46.4k | **37% fewer** |
+| **Tool calls** | 60 | 45 | **25% fewer** |
+| **Main context usage** | 28.7% | 24.0% | **4.7% less** |
+
+<details>
+<summary><strong>Full benchmark data</strong></summary>
+
+**With CodeGraph:**
+| Test | Agents | Tool Uses | Explore Tokens | Plan Tokens | Time |
+|------|--------|-----------|----------------|-------------|------|
+| 1 | 3 | 54 | 149.7k | 76.4k | 1m 43s |
+| 2 | 2 | 41 | 102.1k | 74.8k | 1m 29s |
+| 3 | 2 | 40 | 83.3k | 63.3k | 1m 25s |
+| **Avg** | **2.3** | **45** | **111.7k** | **71.5k** | **1m 32s** |
+
+**Without CodeGraph:**
+| Test | Agents | Tool Uses | Explore Tokens | Plan Tokens | Time |
+|------|--------|-----------|----------------|-------------|------|
+| 1 | 3 | 74 | 177.3k | 80.5k | 1m 54s |
+| 2 | 2 | 55 | 149.3k | 64.0k | 1m 27s |
+| 3 | 2 | 51 | 146.7k | 62.3k | 1m 17s |
+| **Avg** | **2.3** | **60** | **157.8k** | **68.9k** | **1m 33s** |
+
+</details>
+
+### 🔄 How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Claude Code                               │
+│                                                                  │
+│  "Implement user authentication"                                 │
+│           │                                                      │
+│           ▼                                                      │
+│  ┌─────────────────┐      ┌─────────────────┐                   │
+│  │  Explore Agent  │ ──── │  Explore Agent  │                   │
+│  └────────┬────────┘      └────────┬────────┘                   │
+│           │                        │                             │
+└───────────┼────────────────────────┼─────────────────────────────┘
+            │                        │
+            ▼                        ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                     CodeGraph MCP Server                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐               │
+│  │   Search    │  │   Callers   │  │   Context   │               │
+│  │  "auth"     │  │  "login()"  │  │  for task   │               │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘               │
+│         │                │                │                       │
+│         └────────────────┼────────────────┘                       │
+│                          ▼                                        │
+│              ┌───────────────────────┐                            │
+│              │   SQLite Graph DB     │                            │
+│              │   • 387 symbols       │                            │
+│              │   • 1,204 edges       │                            │
+│              │   • Instant lookups   │                            │
+│              └───────────────────────┘                            │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+**Without CodeGraph:** Explore agents use `grep`, `glob`, and `Read` to scan files → many API calls, high token usage
+
+**With CodeGraph:** Explore agents query the graph via MCP tools → instant results, local processing, fewer tokens
 
 ---
 

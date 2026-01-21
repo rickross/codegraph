@@ -7,6 +7,10 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import { homedir } from 'os';
+
+// Global model cache directory (shared across all projects)
+const GLOBAL_MODELS_DIR = path.join(homedir(), '.codegraph', 'models');
 
 // Dynamic import for @xenova/transformers (ESM-only package)
 // We use dynamic import to support CommonJS builds
@@ -89,7 +93,7 @@ export class TextEmbedder {
 
   constructor(options: EmbedderOptions = {}) {
     this.modelId = options.modelId || DEFAULT_MODEL;
-    this.cacheDir = options.cacheDir || '.codegraph/models';
+    this.cacheDir = options.cacheDir || GLOBAL_MODELS_DIR;
     this.showProgress = options.showProgress ?? false;
   }
 

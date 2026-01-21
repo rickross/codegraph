@@ -760,7 +760,6 @@ export class CodeGraph {
     if (!this.vectorManager) {
       this.vectorManager = createVectorManager(this.db.getDb(), this.queries, {
         embedder: {
-          cacheDir: path.join(this.projectRoot, '.codegraph', 'models'),
           showProgress: true,
         },
       });

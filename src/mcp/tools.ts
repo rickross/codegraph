@@ -177,6 +177,28 @@ export const tools: ToolDefinition[] = [
       properties: {},
     },
   },
+  {
+    name: 'codegraph_get_project',
+    description: 'Get the currently active project path.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'codegraph_set_project',
+    description: 'Switch to a different project context. The project must already have CodeGraph initialized (run "codegraph init" first).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Absolute path to the project directory',
+        },
+      },
+      required: ['path'],
+    },
+  },
 ];
 
 /**

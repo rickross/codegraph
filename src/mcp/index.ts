@@ -224,6 +224,68 @@ export class MCPServer {
       return;
     }
 
+    // Handle get_project - return current project path
+    if (toolName === 'codegraph_get_project') {
+      const result = {
+        content: [{
+          type: 'text' as const,
+          text: this.projectPath || 'No project currently set'
+        }]
+      };
+      this.transport.sendResult(request.id, result);
+      return;
+    }
+
+    // Handle set_project specially - needs to reinitialize CodeGraph
+    if (toolName === 'codegraph_set_project') {
+      try {
+        const newPath = toolArgs.path as string;
+        if (!newPath) {
+          this.transport.sendError(
+            request.id,
+            ErrorCodes.InvalidParams,
+            'Missing required parameter: path'
+          );
+          return;
+        }
+
+        // Close existing CodeGraph instance
+        if (this.cg) {
+          await this.cg.close();
+          this.cg = null;
+          this.toolHandler = null;
+        }
+
+        // Initialize new project
+        await this.initializeCodeGraph(newPath);
+
+        if (this.initError) {
+          this.transport.sendError(
+            request.id,
+            ErrorCodes.InternalError,
+            this.initError
+          );
+          return;
+        }
+
+        const result = {
+          content: [{
+            type: 'text' as const,
+            text: `Successfully switched to project: ${this.projectPath}\n\nRun codegraph_status to see index details.`
+          }]
+        };
+        this.transport.sendResult(request.id, result);
+        return;
+      } catch (error) {
+        this.transport.sendError(
+          request.id,
+          ErrorCodes.InternalError,
+          `Failed to switch project: ${error}`
+        );
+        return;
+      }
+    }
+
     // Execute the tool
     if (!this.toolHandler) {
       const errorMsg = this.initError ||

@@ -126,6 +126,8 @@ These tools are designed to be used by **Explore agents** for faster codebase ex
 
 | Tool | Use For |
 |------|---------|
+| `codegraph_get_project` | Get the currently active project path |
+| `codegraph_set_project` | Switch to a different indexed project |
 | `codegraph_search` | Find symbols by name (functions, classes, types) |
 | `codegraph_context` | Get relevant code context for a task |
 | `codegraph_callers` | Find what calls a function |

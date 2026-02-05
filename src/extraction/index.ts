@@ -416,9 +416,9 @@ export class ExtractionOrchestrator {
       this.queries.insertEdges(result.edges);
     }
 
-    // Insert unresolved references
-    for (const ref of result.unresolvedReferences) {
-      this.queries.insertUnresolvedRef(ref);
+    // Insert unresolved references (batch for performance)
+    if (result.unresolvedReferences.length > 0) {
+      this.queries.insertUnresolvedRefsBatch(result.unresolvedReferences);
     }
 
     // Insert file record

@@ -711,6 +711,35 @@ export class QueryBuilder {
   }
 
   /**
+   * Insert multiple unresolved references in a single transaction (optimized)
+   */
+  insertUnresolvedRefsBatch(refs: UnresolvedReference[]): void {
+    if (refs.length === 0) return;
+
+    if (!this.stmts.insertUnresolved) {
+      this.stmts.insertUnresolved = this.db.prepare(`
+        INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, candidates)
+        VALUES (@fromNodeId, @referenceName, @referenceKind, @line, @col, @candidates)
+      `);
+    }
+
+    const insertMany = this.db.transaction((refs: UnresolvedReference[]) => {
+      for (const ref of refs) {
+        this.stmts.insertUnresolved!.run({
+          fromNodeId: ref.fromNodeId,
+          referenceName: ref.referenceName,
+          referenceKind: ref.referenceKind,
+          line: ref.line,
+          col: ref.column,
+          candidates: ref.candidates ? JSON.stringify(ref.candidates) : null,
+        });
+      }
+    });
+
+    insertMany(refs);
+  }
+
+  /**
    * Delete unresolved references from a node
    */
   deleteUnresolvedByNode(nodeId: string): void {

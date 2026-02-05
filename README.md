@@ -178,9 +178,9 @@ codegraph init -i
 
 That's it! Claude Code will now use CodeGraph tools automatically when a `.codegraph/` directory exists.
 
-### Using with OpenCode
+### Using with Other MCP Clients
 
-CodeGraph also works with [OpenCode](https://opencode.ai). Add to your `~/.config/opencode/opencode.json`:
+CodeGraph works with any MCP-compatible client. Example configuration:
 
 ```json
 {
@@ -194,14 +194,12 @@ CodeGraph also works with [OpenCode](https://opencode.ai). Add to your `~/.confi
 }
 ```
 
-Then initialize projects as usual:
+Then initialize projects:
 
 ```bash
 cd your-project
 codegraph init -i
 ```
-
-OpenCode will automatically use CodeGraph for semantic code search and navigation.
 
 <details>
 <summary><strong>Manual Setup (Alternative)</strong></summary>

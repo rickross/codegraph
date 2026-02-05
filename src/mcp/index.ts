@@ -286,6 +286,112 @@ export class MCPServer {
       }
     }
 
+    // Handle init_project - initialize CodeGraph in a new project
+    if (toolName === 'codegraph_init_project') {
+      try {
+        const targetPath = toolArgs.path as string;
+        if (!targetPath) {
+          this.transport.sendError(
+            request.id,
+            ErrorCodes.InvalidParams,
+            'Missing required parameter: path'
+          );
+          return;
+        }
+
+        // Initialize the project (this will create .codegraph/ and schema)
+        await CodeGraph.init(targetPath, { index: false });
+
+        const result = {
+          content: [{
+            type: 'text' as const,
+            text: `Successfully initialized CodeGraph in ${targetPath}\n\nNext steps:\n- Run codegraph_index_project to build the index\n- Or run codegraph_set_project to switch to it`
+          }]
+        };
+        this.transport.sendResult(request.id, result);
+        return;
+      } catch (error) {
+        this.transport.sendError(
+          request.id,
+          ErrorCodes.InternalError,
+          `Failed to initialize project: ${error}`
+        );
+        return;
+      }
+    }
+
+    // Handle index_project - full index of a project
+    if (toolName === 'codegraph_index_project') {
+      try {
+        const targetPath = toolArgs.path as string;
+        if (!targetPath) {
+          this.transport.sendError(
+            request.id,
+            ErrorCodes.InvalidParams,
+            'Missing required parameter: path'
+          );
+          return;
+        }
+
+        // Open the project and index it
+        const cg = await CodeGraph.open(targetPath);
+        const indexResult = await cg.indexAll();
+        await cg.close();
+
+        const result = {
+          content: [{
+            type: 'text' as const,
+            text: `Successfully indexed ${targetPath}\n\nIndexed ${indexResult.filesIndexed} files, created ${indexResult.nodesCreated} nodes and ${indexResult.edgesCreated} edges\n\nRun codegraph_set_project to switch to this project.`
+          }]
+        };
+        this.transport.sendResult(request.id, result);
+        return;
+      } catch (error) {
+        this.transport.sendError(
+          request.id,
+          ErrorCodes.InternalError,
+          `Failed to index project: ${error}`
+        );
+        return;
+      }
+    }
+
+    // Handle sync_project - incremental sync of a project
+    if (toolName === 'codegraph_sync_project') {
+      try {
+        const targetPath = toolArgs.path as string;
+        if (!targetPath) {
+          this.transport.sendError(
+            request.id,
+            ErrorCodes.InvalidParams,
+            'Missing required parameter: path'
+          );
+          return;
+        }
+
+        // Open and sync the project
+        const cg = await CodeGraph.open(targetPath);
+        await cg.sync();
+        await cg.close();
+
+        const result = {
+          content: [{
+            type: 'text' as const,
+            text: `Successfully synced ${targetPath}\n\nIndex updated with latest changes.`
+          }]
+        };
+        this.transport.sendResult(request.id, result);
+        return;
+      } catch (error) {
+        this.transport.sendError(
+          request.id,
+          ErrorCodes.InternalError,
+          `Failed to sync project: ${error}`
+        );
+        return;
+      }
+    }
+
     // Execute the tool
     if (!this.toolHandler) {
       const errorMsg = this.initError ||

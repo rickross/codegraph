@@ -199,6 +199,48 @@ export const tools: ToolDefinition[] = [
       required: ['path'],
     },
   },
+  {
+    name: 'codegraph_init_project',
+    description: 'Initialize CodeGraph in a project directory. Creates .codegraph/ directory and database schema.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Absolute path to the project directory',
+        },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'codegraph_index_project',
+    description: 'Perform a full index of all files in a project. The project must be initialized first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Absolute path to the project directory',
+        },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'codegraph_sync_project',
+    description: 'Incrementally sync a project index (only processes changed files since last index/sync). Much faster than full index.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Absolute path to the project directory',
+        },
+      },
+      required: ['path'],
+    },
+  },
 ];
 
 /**

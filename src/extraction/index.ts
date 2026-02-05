@@ -40,6 +40,12 @@ export interface IndexResult {
   edgesCreated: number;
   errors: ExtractionError[];
   durationMs: number;
+  timing?: {
+    scanningMs: number;
+    parsingMs: number;
+    storingMs: number;
+    resolvingMs: number;
+  };
 }
 
 /**
@@ -192,7 +198,16 @@ export class ExtractionOrchestrator {
     let totalNodes = 0;
     let totalEdges = 0;
 
+    // Timing tracking
+    const timing = {
+      scanningMs: 0,
+      parsingMs: 0,
+      storingMs: 0,
+      resolvingMs: 0,
+    };
+
     // Phase 1: Scan for files
+    const scanStart = Date.now();
     onProgress?.({
       phase: 'scanning',
       current: 0,
@@ -207,6 +222,8 @@ export class ExtractionOrchestrator {
         currentFile: file,
       });
     });
+    
+    timing.scanningMs = Date.now() - scanStart;
 
     if (signal?.aborted) {
       return {
@@ -220,7 +237,7 @@ export class ExtractionOrchestrator {
       };
     }
 
-    // Phase 2: Parse files
+    // Phase 2: Parse and store files
     const total = files.length;
 
     for (let i = 0; i < files.length; i++) {
@@ -233,10 +250,13 @@ export class ExtractionOrchestrator {
           edgesCreated: totalEdges,
           errors: [{ message: 'Aborted', severity: 'error' }, ...errors],
           durationMs: Date.now() - startTime,
+          timing,
         };
       }
 
       const filePath = files[i]!;
+      
+      // Report parsing progress
       onProgress?.({
         phase: 'parsing',
         current: i + 1,
@@ -244,7 +264,12 @@ export class ExtractionOrchestrator {
         currentFile: filePath,
       });
 
+      const fileStart = Date.now();
       const result = await this.indexFile(filePath);
+      const parseTime = Date.now() - fileStart;
+      
+      // Accumulate parse time (includes reading + tree-sitter)
+      timing.parsingMs += parseTime;
 
       if (result.errors.length > 0) {
         errors.push(...result.errors);
@@ -254,10 +279,22 @@ export class ExtractionOrchestrator {
         filesIndexed++;
         totalNodes += result.nodes.length;
         totalEdges += result.edges.length;
+        
+        // Report storing progress after DB write
+        onProgress?.({
+          phase: 'storing',
+          current: filesIndexed,
+          total: files.length,
+          currentFile: filePath,
+        });
       } else if (result.errors.length === 0) {
         filesSkipped++;
       }
     }
+    
+    // Note: storing time is included in parsing time above since indexFile() includes DB writes
+    // To separate them, we'd need to refactor indexFile() to return parse/store times separately
+    timing.storingMs = 0; // Included in parsingMs for now
 
     // Phase 3: Resolve references
     onProgress?.({
@@ -276,6 +313,7 @@ export class ExtractionOrchestrator {
       edgesCreated: totalEdges,
       errors,
       durationMs: Date.now() - startTime,
+      timing,
     };
   }
 

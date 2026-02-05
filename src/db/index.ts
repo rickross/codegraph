@@ -35,14 +35,15 @@ export class DatabaseConnection {
     // Create and configure database
     const db = new Database(dbPath);
 
-    // Enable foreign keys and WAL mode for better performance
+    // Enable foreign keys and WAL mode
     db.pragma('foreign_keys = ON');
     db.pragma('journal_mode = WAL');
-
-    // Run schema initialization
-    const schemaPath = path.join(__dirname, 'schema.sql');
-    const schema = fs.readFileSync(schemaPath, 'utf-8');
-    db.exec(schema);
+    
+    // Performance optimizations
+    db.pragma('synchronous = NORMAL');  // Faster writes (safe with WAL)
+    db.pragma('cache_size = -64000');   // 64MB cache
+    db.pragma('temp_store = MEMORY');   // Keep temp tables in memory
+    db.pragma('mmap_size = 268435456'); // 256MB memory-mapped I/O
 
     return new DatabaseConnection(db, dbPath);
   }

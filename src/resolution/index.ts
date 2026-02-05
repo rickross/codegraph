@@ -167,7 +167,10 @@ export class ReferenceResolver {
   /**
    * Resolve all unresolved references
    */
-  resolveAll(unresolvedRefs: UnresolvedReference[]): ResolutionResult {
+  resolveAll(
+    unresolvedRefs: UnresolvedReference[],
+    onProgress?: (current: number, total: number) => void
+  ): ResolutionResult {
     // Pre-load symbol caches for fast lookups during bulk resolution
     this.warmCaches();
     
@@ -186,6 +189,9 @@ export class ReferenceResolver {
       language: this.getLanguageFromNodeId(ref.fromNodeId),
     }));
 
+    const total = refs.length;
+    let current = 0;
+
     for (const ref of refs) {
       const result = this.resolveOne(ref);
 
@@ -194,6 +200,12 @@ export class ReferenceResolver {
         byMethod[result.resolvedBy] = (byMethod[result.resolvedBy] || 0) + 1;
       } else {
         unresolved.push(ref);
+      }
+
+      // Report progress every 100 refs (or adjust frequency)
+      current++;
+      if (onProgress && (current % 100 === 0 || current === total)) {
+        onProgress(current, total);
       }
     }
 
@@ -261,8 +273,11 @@ export class ReferenceResolver {
   /**
    * Resolve and persist edges to database
    */
-  resolveAndPersist(unresolvedRefs: UnresolvedReference[]): ResolutionResult {
-    const result = this.resolveAll(unresolvedRefs);
+  resolveAndPersist(
+    unresolvedRefs: UnresolvedReference[],
+    onProgress?: (current: number, total: number) => void
+  ): ResolutionResult {
+    const result = this.resolveAll(unresolvedRefs, onProgress);
 
     // Create edges from resolved references
     const edges = this.createEdges(result.resolved);

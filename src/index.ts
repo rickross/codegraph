@@ -450,7 +450,12 @@ export class CodeGraph {
   resolveReferences(): ResolutionResult {
     // Get all unresolved references from the database
     const unresolvedRefs = this.queries.getUnresolvedReferences();
-    return this.resolver.resolveAndPersist(unresolvedRefs);
+    return this.resolver.resolveAndPersist(unresolvedRefs, (current, total) => {
+      // Log progress every 100 refs
+      if (current % 100 === 0 || current === total) {
+        console.log(`Resolving references: ${current}/${total} (${Math.round((current / total) * 100)}%)`);
+      }
+    });
   }
 
   /**

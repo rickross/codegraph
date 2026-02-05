@@ -289,6 +289,14 @@ program
           success(`Indexed ${formatNumber(result.filesIndexed)} files`);
           info(`Created ${formatNumber(result.nodesCreated)} nodes and ${formatNumber(result.edgesCreated)} edges`);
           info(`Completed in ${formatDuration(result.durationMs)}`);
+          
+          // Resolve references
+          console.log();
+          const resolveResult = cg.resolveReferences();
+          success(`Resolved ${formatNumber(resolveResult.stats.resolved)} references`);
+          if (resolveResult.stats.unresolved > 0) {
+            info(`${formatNumber(resolveResult.stats.unresolved)} references remain unresolved`);
+          }
         }
       } else {
         if (!options.quiet) {

@@ -318,7 +318,7 @@ export class ExtractionOrchestrator {
   }
 
   /**
-   * Index specific files
+   * Index specific files (optimized with parallel I/O)
    */
   async indexFiles(filePaths: string[]): Promise<IndexResult> {
     const startTime = Date.now();
@@ -328,19 +328,30 @@ export class ExtractionOrchestrator {
     let totalNodes = 0;
     let totalEdges = 0;
 
-    for (const filePath of filePaths) {
-      const result = await this.indexFile(filePath);
+    // Process in batches to balance parallelism with memory usage
+    const BATCH_SIZE = 20;
 
-      if (result.errors.length > 0) {
-        errors.push(...result.errors);
-      }
+    for (let i = 0; i < filePaths.length; i += BATCH_SIZE) {
+      const batch = filePaths.slice(i, i + BATCH_SIZE);
+      
+      // Read files in parallel (I/O bound)
+      const results = await Promise.all(
+        batch.map(filePath => this.indexFile(filePath))
+      );
 
-      if (result.nodes.length > 0) {
-        filesIndexed++;
-        totalNodes += result.nodes.length;
-        totalEdges += result.edges.length;
-      } else {
-        filesSkipped++;
+      // Accumulate results
+      for (const result of results) {
+        if (result.errors.length > 0) {
+          errors.push(...result.errors);
+        }
+
+        if (result.nodes.length > 0) {
+          filesIndexed++;
+          totalNodes += result.nodes.length;
+          totalEdges += result.edges.length;
+        } else if (result.errors.length === 0) {
+          filesSkipped++;
+        }
       }
     }
 
@@ -361,12 +372,12 @@ export class ExtractionOrchestrator {
   async indexFile(relativePath: string): Promise<ExtractionResult> {
     const fullPath = path.join(this.rootDir, relativePath);
 
-    // Check file exists and is readable
+    // Check file exists and is readable (async for parallel I/O)
     let content: string;
     let stats: fs.Stats;
     try {
-      stats = fs.statSync(fullPath);
-      content = fs.readFileSync(fullPath, 'utf-8');
+      stats = await fs.promises.stat(fullPath);
+      content = await fs.promises.readFile(fullPath, 'utf-8');
     } catch (error) {
       return {
         nodes: [],

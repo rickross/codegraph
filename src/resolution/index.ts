@@ -35,6 +35,8 @@ export class ReferenceResolver {
   private frameworks: FrameworkResolver[] = [];
   private nodeCache: Map<string, Node[]> = new Map();
   private fileCache: Map<string, string | null> = new Map();
+  private nameCache: Map<string, Node[]> = new Map();
+  private qualifiedNameCache: Map<string, Node[]> = new Map();
 
   constructor(projectRoot: string, queries: QueryBuilder) {
     this.projectRoot = projectRoot;
@@ -43,11 +45,44 @@ export class ReferenceResolver {
   }
 
   /**
-   * Initialize the resolver (detect frameworks, etc.)
+   * Initialize frameworks and detection
    */
   initialize(): void {
     this.frameworks = detectFrameworks(this.context);
-    this.clearCaches();
+  }
+
+  /**
+   * Pre-load symbol lookup caches to optimize bulk resolution.
+   * Call this before resolving many references to avoid repeated DB queries.
+   */
+  private warmCaches(): void {
+    // Get all nodes and index them by name and qualified name
+    const allFiles = this.queries.getAllFiles();
+    
+    this.nameCache.clear();
+    this.qualifiedNameCache.clear();
+    
+    for (const file of allFiles) {
+      const nodes = this.queries.getNodesByFile(file.path);
+      
+      for (const node of nodes) {
+        // Index by name
+        if (node.name) {
+          if (!this.nameCache.has(node.name)) {
+            this.nameCache.set(node.name, []);
+          }
+          this.nameCache.get(node.name)!.push(node);
+        }
+        
+        // Index by qualified name
+        if (node.qualifiedName) {
+          if (!this.qualifiedNameCache.has(node.qualifiedName)) {
+            this.qualifiedNameCache.set(node.qualifiedName, []);
+          }
+          this.qualifiedNameCache.get(node.qualifiedName)!.push(node);
+        }
+      }
+    }
   }
 
   /**
@@ -71,10 +106,18 @@ export class ReferenceResolver {
       },
 
       getNodesByName: (name: string) => {
+        // Use cache if available, otherwise fall back to DB query
+        if (this.nameCache.has(name)) {
+          return this.nameCache.get(name)!;
+        }
         return this.queries.searchNodes(name, { limit: 100 }).map((r) => r.node);
       },
 
       getNodesByQualifiedName: (qualifiedName: string) => {
+        // Use cache if available, otherwise fall back to DB query
+        if (this.qualifiedNameCache.has(qualifiedName)) {
+          return this.qualifiedNameCache.get(qualifiedName)!;
+        }
         // Search for exact qualified name match
         return this.queries
           .searchNodes(qualifiedName, { limit: 50 })
@@ -125,6 +168,9 @@ export class ReferenceResolver {
    * Resolve all unresolved references
    */
   resolveAll(unresolvedRefs: UnresolvedReference[]): ResolutionResult {
+    // Pre-load symbol caches for fast lookups during bulk resolution
+    this.warmCaches();
+    
     const resolved: ResolvedRef[] = [];
     const unresolved: UnresolvedRef[] = [];
     const byMethod: Record<string, number> = {};

@@ -268,10 +268,16 @@ export class MCPServer {
           return;
         }
 
+        // Get status of the newly set root
+        const status = await this.cg!.getStats();
         const result = {
           content: [{
             type: 'text' as const,
-            text: `Successfully switched to root: ${this.projectPath}\n\nRun codegraph_status to see index details.`
+            text: `Successfully switched to root: ${this.projectPath}\n\n` +
+                  `**Files indexed:** ${status.fileCount}\n` +
+                  `**Total nodes:** ${status.nodeCount}\n` +
+                  `**Total edges:** ${status.edgeCount}\n` +
+                  `**Database size:** ${(status.dbSizeBytes / 1024 / 1024).toFixed(2)} MB`
           }]
         };
         this.transport.sendResult(request.id, result);

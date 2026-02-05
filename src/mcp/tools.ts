@@ -223,6 +223,14 @@ export const tools: ToolDefinition[] = [
       properties: {},
     },
   },
+  {
+    name: 'codegraph_uninit',
+    description: 'Remove CodeGraph from the current root. WARNING: Permanently deletes all CodeGraph data (.codegraph/ directory).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];
 
 /**

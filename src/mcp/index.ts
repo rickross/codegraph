@@ -396,6 +396,44 @@ export class MCPServer {
       }
     }
 
+    // Handle uninit - remove CodeGraph from current root
+    if (toolName === 'codegraph_uninit') {
+      try {
+        if (!this.cg) {
+          this.transport.sendError(
+            request.id,
+            ErrorCodes.InvalidParams,
+            'No root currently active. Use codegraph_set_root first.'
+          );
+          return;
+        }
+
+        const rootPath = this.projectPath;
+        
+        // Uninitialize (closes DB and deletes .codegraph/)
+        this.cg.uninitialize();
+        this.cg = null;
+        this.toolHandler = null;
+        this.projectPath = null;
+
+        const result = {
+          content: [{
+            type: 'text' as const,
+            text: `Successfully removed CodeGraph from ${rootPath}\n\nThe .codegraph/ directory has been deleted.`
+          }]
+        };
+        this.transport.sendResult(request.id, result);
+        return;
+      } catch (error) {
+        this.transport.sendError(
+          request.id,
+          ErrorCodes.InternalError,
+          `Failed to uninitialize root: ${error}`
+        );
+        return;
+      }
+    }
+
     // Execute the tool
     if (!this.toolHandler) {
       const errorMsg = this.initError ||

@@ -131,6 +131,7 @@ These tools are designed to be used by **Explore agents** for faster codebase ex
 | `codegraph_init` | Initialize CodeGraph in current root |
 | `codegraph_index` | Perform full index of current root (all files) |
 | `codegraph_sync` | Incremental update of current root (only changed files, faster) |
+| `codegraph_uninit` | Remove CodeGraph from current root (deletes .codegraph/) |
 | `codegraph_search` | Find symbols by name (functions, classes, types) |
 | `codegraph_context` | Get relevant code context for a task |
 | `codegraph_callers` | Find what calls a function |

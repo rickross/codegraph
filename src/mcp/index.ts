@@ -73,7 +73,7 @@ export class MCPServer {
     this.projectPath = projectPath;
 
     if (!CodeGraph.isInitialized(projectPath)) {
-      this.initError = `CodeGraph not initialized in ${projectPath}. Run 'codegraph init' first.`;
+      this.initError = `CodeGraph not initialized in ${projectPath}. Run codegraph_init to initialize it first.`;
       return;
     }
 

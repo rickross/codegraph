@@ -180,7 +180,9 @@ That's it! Claude Code will now use CodeGraph tools automatically when a `.codeg
 
 ### Using with Other MCP Clients
 
-CodeGraph works with any MCP-compatible client. Example configuration:
+CodeGraph works with any MCP-compatible client. Example configuration for OpenCode:
+
+*Typically in `~/.config/opencode/opencode.json`:*
 
 ```json
 {

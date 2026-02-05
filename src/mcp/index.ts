@@ -225,19 +225,19 @@ export class MCPServer {
     }
 
     // Handle get_project - return current project path
-    if (toolName === 'codegraph_get_project') {
+    if (toolName === 'codegraph_get_root') {
       const result = {
         content: [{
           type: 'text' as const,
-          text: this.projectPath || 'No project currently set'
+          text: this.projectPath || 'No root currently set'
         }]
       };
       this.transport.sendResult(request.id, result);
       return;
     }
 
-    // Handle set_project specially - needs to reinitialize CodeGraph
-    if (toolName === 'codegraph_set_project') {
+    // Handle set_root specially - needs to reinitialize CodeGraph
+    if (toolName === 'codegraph_set_root') {
       try {
         const newPath = toolArgs.path as string;
         if (!newPath) {
@@ -271,7 +271,7 @@ export class MCPServer {
         const result = {
           content: [{
             type: 'text' as const,
-            text: `Successfully switched to project: ${this.projectPath}\n\nRun codegraph_status to see index details.`
+            text: `Successfully switched to root: ${this.projectPath}\n\nRun codegraph_status to see index details.`
           }]
         };
         this.transport.sendResult(request.id, result);
@@ -286,26 +286,25 @@ export class MCPServer {
       }
     }
 
-    // Handle init_project - initialize CodeGraph in a new project
-    if (toolName === 'codegraph_init_project') {
+    // Handle init - initialize CodeGraph in current root
+    if (toolName === 'codegraph_init') {
       try {
-        const targetPath = toolArgs.path as string;
-        if (!targetPath) {
+        if (!this.projectPath) {
           this.transport.sendError(
             request.id,
             ErrorCodes.InvalidParams,
-            'Missing required parameter: path'
+            'No root currently set. Use codegraph_set_root first.'
           );
           return;
         }
 
-        // Initialize the project (this will create .codegraph/ and schema)
-        await CodeGraph.init(targetPath, { index: false });
+        // Initialize the current root (this will create .codegraph/ and schema)
+        await CodeGraph.init(this.projectPath, { index: false });
 
         const result = {
           content: [{
             type: 'text' as const,
-            text: `Successfully initialized CodeGraph in ${targetPath}\n\nNext steps:\n- Run codegraph_index_project to build the index\n- Or run codegraph_set_project to switch to it`
+            text: `Successfully initialized CodeGraph in ${this.projectPath}\n\nNext step: Run codegraph_index to build the index`
           }]
         };
         this.transport.sendResult(request.id, result);
@@ -314,34 +313,36 @@ export class MCPServer {
         this.transport.sendError(
           request.id,
           ErrorCodes.InternalError,
-          `Failed to initialize project: ${error}`
+          `Failed to initialize root: ${error}`
         );
         return;
       }
     }
 
-    // Handle index_project - full index of a project
-    if (toolName === 'codegraph_index_project') {
+    // Handle index - full index of current root
+    if (toolName === 'codegraph_index') {
       try {
-        const targetPath = toolArgs.path as string;
-        if (!targetPath) {
+        if (!this.projectPath) {
           this.transport.sendError(
             request.id,
             ErrorCodes.InvalidParams,
-            'Missing required parameter: path'
+            'No root currently set. Use codegraph_set_root first.'
           );
           return;
         }
 
-        // Open the project and index it
-        const cg = await CodeGraph.open(targetPath);
+        // Open current root and index it
+        const cg = await CodeGraph.open(this.projectPath);
         const indexResult = await cg.indexAll();
         await cg.close();
 
+        // Reinitialize the current instance so it's ready to use
+        await this.initializeCodeGraph(this.projectPath);
+
         const result = {
           content: [{
             type: 'text' as const,
-            text: `Successfully indexed ${targetPath}\n\nIndexed ${indexResult.filesIndexed} files, created ${indexResult.nodesCreated} nodes and ${indexResult.edgesCreated} edges\n\nRun codegraph_set_project to switch to this project.`
+            text: `Successfully indexed ${this.projectPath}\n\nIndexed ${indexResult.filesIndexed} files, created ${indexResult.nodesCreated} nodes and ${indexResult.edgesCreated} edges`
           }]
         };
         this.transport.sendResult(request.id, result);
@@ -350,34 +351,31 @@ export class MCPServer {
         this.transport.sendError(
           request.id,
           ErrorCodes.InternalError,
-          `Failed to index project: ${error}`
+          `Failed to index root: ${error}`
         );
         return;
       }
     }
 
-    // Handle sync_project - incremental sync of a project
-    if (toolName === 'codegraph_sync_project') {
+    // Handle sync - incremental sync of current root
+    if (toolName === 'codegraph_sync') {
       try {
-        const targetPath = toolArgs.path as string;
-        if (!targetPath) {
+        if (!this.cg) {
           this.transport.sendError(
             request.id,
             ErrorCodes.InvalidParams,
-            'Missing required parameter: path'
+            'No root currently active. Use codegraph_set_root first.'
           );
           return;
         }
 
-        // Open and sync the project
-        const cg = await CodeGraph.open(targetPath);
-        await cg.sync();
-        await cg.close();
+        // Sync the current root
+        await this.cg.sync();
 
         const result = {
           content: [{
             type: 'text' as const,
-            text: `Successfully synced ${targetPath}\n\nIndex updated with latest changes.`
+            text: `Successfully synced ${this.projectPath}\n\nIndex updated with latest changes.`
           }]
         };
         this.transport.sendResult(request.id, result);
@@ -386,7 +384,7 @@ export class MCPServer {
         this.transport.sendError(
           request.id,
           ErrorCodes.InternalError,
-          `Failed to sync project: ${error}`
+          `Failed to sync root: ${error}`
         );
         return;
       }

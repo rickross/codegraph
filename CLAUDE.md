@@ -126,17 +126,18 @@ These tools are designed to be used by **Explore agents** for faster codebase ex
 
 | Tool | Use For |
 |------|---------|
-| `codegraph_get_project` | Get the currently active project path |
-| `codegraph_set_project` | Switch to a different indexed project |
-| `codegraph_init_project` | Initialize CodeGraph in a new project directory |
-| `codegraph_index_project` | Perform full index of a project (all files) |
-| `codegraph_sync_project` | Incremental update (only changed files, faster) |
+| `codegraph_get_root` | Get the currently active root path |
+| `codegraph_set_root` | Switch to a different root (must be initialized) |
+| `codegraph_init` | Initialize CodeGraph in current root |
+| `codegraph_index` | Perform full index of current root (all files) |
+| `codegraph_sync` | Incremental update of current root (only changed files, faster) |
 | `codegraph_search` | Find symbols by name (functions, classes, types) |
 | `codegraph_context` | Get relevant code context for a task |
 | `codegraph_callers` | Find what calls a function |
 | `codegraph_callees` | Find what a function calls |
 | `codegraph_impact` | See what's affected by changing a symbol |
 | `codegraph_node` | Get details + source code for a symbol |
+| `codegraph_status` | Get index status (his tool, unchanged) |
 
 ### Important
 CodeGraph provides **code context**, not product requirements. For new features, still ask the user about:

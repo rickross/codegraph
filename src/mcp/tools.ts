@@ -178,67 +178,49 @@ export const tools: ToolDefinition[] = [
     },
   },
   {
-    name: 'codegraph_get_project',
-    description: 'Get the currently active project path.',
+    name: 'codegraph_get_root',
+    description: 'Get the currently active root path.',
     inputSchema: {
       type: 'object',
       properties: {},
     },
   },
   {
-    name: 'codegraph_set_project',
-    description: 'Switch to a different project context. The project must already have CodeGraph initialized (run "codegraph init" first).',
+    name: 'codegraph_set_root',
+    description: 'Switch to a different root. The root must already have CodeGraph initialized.',
     inputSchema: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
-          description: 'Absolute path to the project directory',
+          description: 'Absolute path to the root directory',
         },
       },
       required: ['path'],
     },
   },
   {
-    name: 'codegraph_init_project',
-    description: 'Initialize CodeGraph in a project directory. Creates .codegraph/ directory and database schema.',
+    name: 'codegraph_init',
+    description: 'Initialize CodeGraph in the current root. Creates .codegraph/ directory and database schema.',
     inputSchema: {
       type: 'object',
-      properties: {
-        path: {
-          type: 'string',
-          description: 'Absolute path to the project directory',
-        },
-      },
-      required: ['path'],
+      properties: {},
     },
   },
   {
-    name: 'codegraph_index_project',
-    description: 'Perform a full index of all files in a project. The project must be initialized first.',
+    name: 'codegraph_index',
+    description: 'Perform a full index of all files in the current root. The root must be initialized first.',
     inputSchema: {
       type: 'object',
-      properties: {
-        path: {
-          type: 'string',
-          description: 'Absolute path to the project directory',
-        },
-      },
-      required: ['path'],
+      properties: {},
     },
   },
   {
-    name: 'codegraph_sync_project',
-    description: 'Incrementally sync a project index (only processes changed files since last index/sync). Much faster than full index.',
+    name: 'codegraph_sync',
+    description: 'Incrementally sync the current root index (only processes changed files since last index/sync). Much faster than full index.',
     inputSchema: {
       type: 'object',
-      properties: {
-        path: {
-          type: 'string',
-          description: 'Absolute path to the project directory',
-        },
-      },
-      required: ['path'],
+      properties: {},
     },
   },
 ];

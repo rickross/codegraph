@@ -404,6 +404,7 @@ export class CodeGraph {
       const result = await this.orchestrator.sync(options.onProgress);
 
       // Resolve references if files were updated
+      // Cache optimization makes full resolution fast even with 20K+ refs
       if (result.filesAdded > 0 || result.filesModified > 0) {
         this.resolveReferences();
       }
@@ -450,13 +451,6 @@ export class CodeGraph {
     // Get all unresolved references from the database
     const unresolvedRefs = this.queries.getUnresolvedReferences();
     return this.resolver.resolveAndPersist(unresolvedRefs);
-  }
-
-  /**
-   * Get detected frameworks in the project
-   */
-  getDetectedFrameworks(): string[] {
-    return this.resolver.getDetectedFrameworks();
   }
 
   /**

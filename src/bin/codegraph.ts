@@ -292,8 +292,27 @@ program
           
           // Resolve references
           console.log();
-          const resolveResult = cg.resolveReferences();
-          success(`Resolved ${formatNumber(resolveResult.stats.resolved)} references`);
+          console.log(chalk.cyan('Resolving references...'));
+          
+          let lastUpdate = Date.now();
+          const resolveStart = Date.now();
+          
+          const resolveResult = cg.resolveReferences((current, total) => {
+            const now = Date.now();
+            // Update every 100ms or on completion
+            if (now - lastUpdate > 100 || current === total) {
+              const bar = progressBar(current, total);
+              process.stdout.write(`\r${chalk.cyan('Resolving refs')}: ${bar} ${chalk.dim(`(${formatNumber(current)}/${formatNumber(total)})`)}`);
+              lastUpdate = now;
+            }
+          });
+          
+          const resolveDuration = Date.now() - resolveStart;
+          
+          // Clear progress line
+          process.stdout.write('\r' + ' '.repeat(120) + '\r');
+          
+          success(`Resolved ${formatNumber(resolveResult.stats.resolved)} references in ${formatDuration(resolveDuration)}`);
           if (resolveResult.stats.unresolved > 0) {
             info(`${formatNumber(resolveResult.stats.unresolved)} references remain unresolved`);
           }

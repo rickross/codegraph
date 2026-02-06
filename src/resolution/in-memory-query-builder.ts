@@ -82,44 +82,62 @@ export class InMemoryQueryBuilder {
     const lowerQuery = query.toLowerCase();
     const results: Array<{ node: Node; score: number }> = [];
 
-    // Mimic FTS5 behavior: prefix matching, case-insensitive, scored by match quality
+    // Match QueryBuilder's searchNodesLike + FTS5 behavior
+    // FTS5 uses prefix matching with wildcards, so we need to be more permissive
     for (const node of this.nodes) {
       let score = 0;
       const lowerName = node.name?.toLowerCase();
       const lowerQualified = node.qualifiedName?.toLowerCase();
 
-      // Exact match (highest score)
+      // Exact scoring from QueryBuilder.searchNodesLike
       if (lowerName === lowerQuery) {
-        score = 10;
-      } else if (lowerQualified === lowerQuery) {
-        score = 9;
-      }
-      // Prefix match (high score)
-      else if (lowerName?.startsWith(lowerQuery)) {
-        score = 8;
-      } else if (lowerQualified?.endsWith('.' + lowerQuery)) {
-        score = 7;
-      }
-      // Contains match (medium score)
-      else if (lowerName?.includes(lowerQuery)) {
-        score = 5;
+        score = 1.0;  // Exact match
+      } else if (lowerName?.startsWith(lowerQuery)) {
+        score = 0.9;  // Starts with
+      } else if (lowerName?.includes(lowerQuery)) {
+        score = 0.8;  // Contains in name
       } else if (lowerQualified?.includes(lowerQuery)) {
-        score = 4;
+        score = 0.7;  // Contains in qualified name
       }
-      // Partial word match (lower score)
-      else if (lowerName?.split(/[._-]/).some(part => part.startsWith(lowerQuery))) {
-        score = 3;
-      } else if (lowerQualified?.split(/[._-]/).some(part => part.includes(lowerQuery))) {
-        score = 2;
+      // Additional FTS5-like matching for partial words
+      else if (lowerQualified?.startsWith(lowerQuery)) {
+        score = 0.65; // Qualified name starts with
+      }
+      // Check if any part of a dotted/camelCase name matches
+      else {
+        // Split on common delimiters and check each part
+        const nameParts = lowerName?.split(/[._-]/) || [];
+        const qualParts = lowerQualified?.split(/[._-]/) || [];
+        const allParts = [...nameParts, ...qualParts];
+        
+        for (const part of allParts) {
+          if (part.startsWith(lowerQuery)) {
+            score = 0.6;
+            break;
+          } else if (part.includes(lowerQuery)) {
+            score = 0.5;
+            break;
+          }
+        }
+        
+        if (score === 0) {
+          continue; // No match
+        }
       }
 
-      if (score > 0) {
-        results.push({ node, score });
-      }
+      results.push({ node, score });
     }
 
-    // Sort by score descending, then take limit
-    results.sort((a, b) => b.score - a.score);
+    // Sort by score DESC, then by name length ASC (like QueryBuilder)
+    results.sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      const aLen = a.node.name?.length || 0;
+      const bLen = b.node.name?.length || 0;
+      return aLen - bLen;
+    });
+    
     return results.slice(0, limit);
   }
 

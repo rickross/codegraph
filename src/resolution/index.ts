@@ -410,8 +410,14 @@ export class ReferenceResolver {
     // Delete old resolved edges before inserting new ones
     // (prevents duplicates when re-indexing)
     const sourceIds = new Set(edges.map(e => e.source));
-    for (const sourceId of sourceIds) {
-      this.queries.deleteEdgesBySource(sourceId);
+    console.log(`[DEBUG] About to delete edges from ${sourceIds.size} sources...`);
+    try {
+      for (const sourceId of sourceIds) {
+        this.queries.deleteEdgesBySource(sourceId);
+      }
+    } catch (error) {
+      console.error(`[DEBUG] Error deleting edges:`, error);
+      throw error;
     }
     const t4 = Date.now();
     console.log(`[DEBUG] deleteEdgesBySource: ${t4 - t3}ms (${sourceIds.size} sources)`);

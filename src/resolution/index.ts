@@ -194,6 +194,9 @@ export class ReferenceResolver {
     const total = refs.length;
     let current = 0;
 
+    console.log(`[DEBUG] Starting resolution loop for ${total} refs...`);
+    const loopStart = Date.now();
+
     for (const ref of refs) {
       const result = this.resolveOne(ref);
 
@@ -210,6 +213,9 @@ export class ReferenceResolver {
         onProgress(current, total);
       }
     }
+    
+    const loopEnd = Date.now();
+    console.log(`[DEBUG] Resolution loop completed: ${loopEnd - loopStart}ms`);
 
     return {
       resolved,
@@ -279,10 +285,15 @@ export class ReferenceResolver {
     unresolvedRefs: UnresolvedReference[],
     onProgress?: (current: number, total: number) => void
   ): ResolutionResult {
+    const t1 = Date.now();
     const result = this.resolveAll(unresolvedRefs, onProgress);
+    const t2 = Date.now();
+    console.log(`[DEBUG] resolveAll total: ${t2 - t1}ms`);
 
     // Create edges from resolved references
     const edges = this.createEdges(result.resolved);
+    const t3 = Date.now();
+    console.log(`[DEBUG] createEdges: ${t3 - t2}ms (${edges.length} edges)`);
 
     // Delete old resolved edges before inserting new ones
     // (prevents duplicates when re-indexing)
@@ -290,11 +301,15 @@ export class ReferenceResolver {
     for (const sourceId of sourceIds) {
       this.queries.deleteEdgesBySource(sourceId);
     }
+    const t4 = Date.now();
+    console.log(`[DEBUG] deleteEdgesBySource: ${t4 - t3}ms (${sourceIds.size} sources)`);
 
     // Insert new edges into database
     if (edges.length > 0) {
       this.queries.insertEdges(edges);
     }
+    const t5 = Date.now();
+    console.log(`[DEBUG] insertEdges: ${t5 - t4}ms`);
 
     return result;
   }

@@ -367,6 +367,16 @@ program
           if (resolveResult.stats.unresolved > 0) {
             info(`${formatNumber(resolveResult.stats.unresolved)} references remain unresolved`);
           }
+          
+          // Show final statistics
+          console.log();
+          const stats = cg.getStats();
+          console.log(chalk.bold('Index Statistics:'));
+          console.log(`  Files:     ${formatNumber(stats.fileCount)}`);
+          console.log(`  Nodes:     ${formatNumber(stats.nodeCount)}`);
+          console.log(`  Edges:     ${formatNumber(stats.edgeCount)}`);
+          const dbSizeMB = (stats.dbSizeBytes / (1024 * 1024)).toFixed(2);
+          console.log(`  DB Size:   ${dbSizeMB} MB`);
         }
       } else {
         if (!options.quiet) {

@@ -282,7 +282,14 @@ export class ReferenceResolver {
     // Create edges from resolved references
     const edges = this.createEdges(result.resolved);
 
-    // Insert edges into database
+    // Delete old resolved edges before inserting new ones
+    // (prevents duplicates when re-indexing)
+    const sourceIds = new Set(edges.map(e => e.source));
+    for (const sourceId of sourceIds) {
+      this.queries.deleteEdgesBySource(sourceId);
+    }
+
+    // Insert new edges into database
     if (edges.length > 0) {
       this.queries.insertEdges(edges);
     }

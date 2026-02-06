@@ -337,12 +337,16 @@ program
           
           // Resolve references
           console.log();
-          console.log(chalk.cyan('Resolving references...'));
+          process.stdout.write(chalk.cyan('Preparing resolver... '));
           
-          let lastUpdate = Date.now();
           const resolveStart = Date.now();
+          let lastUpdate = Date.now();
           
           const resolveResult = cg.resolveReferences((current, total) => {
+            // Clear "Preparing..." message on first progress update
+            if (current === 100) {
+              process.stdout.write('\r' + ' '.repeat(80) + '\r');
+            }
             const now = Date.now();
             // Update every 100ms or on completion
             if (now - lastUpdate > 100 || current === total) {

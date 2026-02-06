@@ -458,9 +458,25 @@ export class CodeGraph {
     const t2 = Date.now();
     // console.log(`[DEBUG] getUnresolvedReferences: ${t2 - t1}ms (${unresolvedRefs.length} refs)`);
     
-    const result = await this.resolver.resolveAndPersist(unresolvedRefs, numWorkers, onProgress);
-    const t3 = Date.now();
-    // console.log(`[DEBUG] resolveAndPersist: ${t3 - t2}ms`);
+    // Call resolveAllParallel directly and handle DB writes here
+    const result = await this.resolver.resolveAllParallel(unresolvedRefs, numWorkers, onProgress);
+    
+    // Re-establish DB connection if needed (workers may have interfered with it)
+    // better-sqlite3 doesn't handle worker threads well
+    if (!this.connection || !this.connection.isOpen()) {
+      if (this.connection) {
+        console.warn('DB connection closed after workers, reconnecting...');
+      }
+      const dbPath = getDatabasePath(this.projectRoot);
+      this.connection = DatabaseConnection.open(dbPath);
+      this.queries = new QueryBuilder(this.connection.getDb());
+    }
+    
+    // Create and insert edges in main thread
+    const edges = this.resolver.createEdges(result.resolved);
+    if (edges.length > 0) {
+      this.queries.insertEdges(edges);
+    }
     
     return result;
   }

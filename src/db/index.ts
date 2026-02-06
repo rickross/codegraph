@@ -93,6 +93,13 @@ export class DatabaseConnection {
   }
 
   /**
+   * Check if database connection is open
+   */
+  isOpen(): boolean {
+    return this.db.open;
+  }
+
+  /**
    * Get current schema version
    */
   getSchemaVersion(): SchemaVersion | null {
@@ -137,13 +144,6 @@ export class DatabaseConnection {
    */
   close(): void {
     this.db.close();
-  }
-
-  /**
-   * Check if the database connection is open
-   */
-  isOpen(): boolean {
-    return this.db.open;
   }
 }
 

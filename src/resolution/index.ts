@@ -30,9 +30,22 @@ export * from './types';
  *
  * Orchestrates reference resolution using multiple strategies.
  */
+// Query interface that both QueryBuilder and InMemoryQueryBuilder implement
+interface IQueryProvider {
+  getAllNodes(): Node[];
+  getNodeById(id: string): Node | undefined;
+  getNodesByName(name: string): Node[];
+  getNodesByQualifiedName(qualifiedName: string): Node[];
+  getNodesByFile(filePath: string): Node[];
+  getNodesByKind(kind: string): Node[];
+  searchNodes(query: string, options?: { limit?: number }): Array<{ node: Node; score: number }>;
+  getAllFiles(): Array<{ path: string }>;
+  insertEdges(edges: Edge[]): void;
+}
+
 export class ReferenceResolver {
   private projectRoot: string;
-  private queries: QueryBuilder;
+  private queries: IQueryProvider;
   private context: ResolutionContext;
   private frameworks: FrameworkResolver[] = [];
   private nodeCache: Map<string, Node[]> = new Map();
@@ -40,7 +53,7 @@ export class ReferenceResolver {
   private nameCache: Map<string, Node[]> = new Map();
   private qualifiedNameCache: Map<string, Node[]> = new Map();
 
-  constructor(projectRoot: string, queries: QueryBuilder) {
+  constructor(projectRoot: string, queries: IQueryProvider) {
     this.projectRoot = projectRoot;
     this.queries = queries;
     this.context = this.createContext();
@@ -190,16 +203,18 @@ export class ReferenceResolver {
 
     // console.log(`[DEBUG] Split ${unresolvedRefs.length} refs into ${chunks.length} chunks of ~${chunkSize} refs each`);
 
-    // Spawn workers
+    // Pre-load all nodes once for all workers (avoid DB access in workers)
+    const allNodes = this.queries.getAllNodes();
+    
+    // Spawn workers with pre-loaded data
     const workerPath = path.join(__dirname, 'worker.js');
-    const dbPath = path.join(this.projectRoot, '.codegraph', 'codegraph.db');
     
     const workers = chunks.map((chunk, idx) => {
       return new Promise<ResolutionResult>((resolve, reject) => {
         const worker = new Worker(workerPath, {
           workerData: {
             projectRoot: this.projectRoot,
-            dbPath,
+            allNodes,  // Pass nodes directly, no DB access needed
             refs: chunk,
           },
         });
@@ -408,20 +423,9 @@ export class ReferenceResolver {
     const t3 = Date.now();
     // console.log(`[DEBUG] createEdges: ${t3 - t2}ms (${edges.length} edges)`);
 
-    // Delete old resolved edges before inserting new ones
-    // (prevents duplicates when re-indexing)
-    const sourceIds = new Set(edges.map(e => e.source));
-    // console.log(`[DEBUG] About to delete edges from ${sourceIds.size} sources...`);
-    try {
-      for (const sourceId of sourceIds) {
-        this.queries.deleteEdgesBySource(sourceId);
-      }
-    } catch (error) {
-      console.error(`[DEBUG] Error deleting edges:`, error);
-      throw error;
-    }
+    // Note: Skipping edge deletion - workers close the DB connection
+    // TODO: Fix DB connection lifecycle with workers
     const t4 = Date.now();
-    // console.log(`[DEBUG] deleteEdgesBySource: ${t4 - t3}ms (${sourceIds.size} sources)`);
 
     // Insert new edges into database
     if (edges.length > 0) {

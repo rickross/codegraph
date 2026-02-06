@@ -72,13 +72,10 @@ export class ReferenceResolver {
    */
   private warmCaches(): void {
     // Get all nodes in one query instead of N queries (one per file)
-    const t1 = Date.now();
     this.nameCache.clear();
     this.qualifiedNameCache.clear();
     
     const allNodes = this.queries.getAllNodes();
-    const t2 = Date.now();
-    // console.log(`[DEBUG] getAllNodes: ${t2 - t1}ms (${allNodes.length} nodes)`);
     
     for (const node of allNodes) {
       // Index by name
@@ -191,8 +188,6 @@ export class ReferenceResolver {
       return this.resolveAll(unresolvedRefs, onProgress);
     }
 
-    const t1 = Date.now();
-    // console.log(`[DEBUG] Starting parallel resolution with ${numWorkers} workers...`);
 
     // Split refs into chunks
     const chunkSize = Math.ceil(unresolvedRefs.length / numWorkers);
@@ -201,7 +196,6 @@ export class ReferenceResolver {
       chunks.push(unresolvedRefs.slice(i, i + chunkSize));
     }
 
-    // console.log(`[DEBUG] Split ${unresolvedRefs.length} refs into ${chunks.length} chunks of ~${chunkSize} refs each`);
 
     // Pre-load all nodes once for all workers (avoid DB access in workers)
     const allNodes = this.queries.getAllNodes();
@@ -220,7 +214,6 @@ export class ReferenceResolver {
         });
 
         worker.on('message', (result: ResolutionResult) => {
-          console.log(`[DEBUG] Worker ${idx} completed: ${result.stats.resolved} resolved, ${result.stats.unresolved} unresolved`);
           resolve(result);
         });
 
@@ -235,8 +228,6 @@ export class ReferenceResolver {
 
     // Wait for all workers
     const results = await Promise.all(workers);
-    const t2 = Date.now();
-    // console.log(`[DEBUG] All workers completed in ${t2 - t1}ms`);
 
     // Merge results
     const merged: ResolutionResult = {
@@ -262,7 +253,6 @@ export class ReferenceResolver {
       }
     }
 
-    // console.log(`[DEBUG] Merged results: ${merged.stats.resolved} resolved, ${merged.stats.unresolved} unresolved`);
     return merged;
   }
 
@@ -281,7 +271,6 @@ export class ReferenceResolver {
     const byMethod: Record<string, number> = {};
 
     // Convert to our internal format (now filePath/language come from DB)
-    const t4 = Date.now();
     const refs: UnresolvedRef[] = unresolvedRefs.map((ref) => ({
       fromNodeId: ref.fromNodeId,
       referenceName: ref.referenceName,
@@ -291,13 +280,10 @@ export class ReferenceResolver {
       filePath: ref.filePath,
       language: ref.language,
     }));
-    const t5 = Date.now();
-    // console.log(`[DEBUG] Convert refs format: ${t5 - t4}ms (${refs.length} refs)`);
 
     const total = refs.length;
     let current = 0;
 
-    // console.log(`[DEBUG] Starting resolution loop for ${total} refs...`);
     const loopStart = Date.now();
     let totalResolveOneTime = 0;
     const slowRefs: Array<{name: string, time: number}> = [];
@@ -310,7 +296,6 @@ export class ReferenceResolver {
       
       // Track slow refs (>10ms)
       if (resolveTime > 10) {
-        slowRefs.push({name: ref.referenceName, time: resolveTime});
       }
 
       if (result) {
@@ -328,18 +313,9 @@ export class ReferenceResolver {
     }
     
     const loopEnd = Date.now();
-    const loopTotal = loopEnd - loopStart;
-    // console.log(`[DEBUG] Resolution loop completed: ${loopTotal}ms`);
-    // console.log(`[DEBUG]   - Time in resolveOne: ${totalResolveOneTime}ms (${(totalResolveOneTime/loopTotal*100).toFixed(1)}%)`);
-    // console.log(`[DEBUG]   - Overhead: ${loopTotal - totalResolveOneTime}ms`);
-    // console.log(`[DEBUG]   - Slow refs (>10ms): ${slowRefs.length}`);
     if (slowRefs.length > 0) {
-      slowRefs.sort((a, b) => b.time - a.time);
-      console.log(`[DEBUG]   - Top 10 slowest:`);
       for (let i = 0; i < Math.min(10, slowRefs.length); i++) {
-        const slow = slowRefs[i];
         if (slow) {
-          console.log(`[DEBUG]       ${slow.name}: ${slow.time}ms`);
         }
       }
     }
@@ -413,26 +389,18 @@ export class ReferenceResolver {
     numWorkers: number = 4,
     onProgress?: (current: number, total: number) => void
   ): Promise<ResolutionResult> {
-    const t1 = Date.now();
     const result = await this.resolveAllParallel(unresolvedRefs, numWorkers, onProgress);
-    const t2 = Date.now();
-    // console.log(`[DEBUG] resolveAll total: ${t2 - t1}ms`);
 
     // Create edges from resolved references
     const edges = this.createEdges(result.resolved);
-    const t3 = Date.now();
-    // console.log(`[DEBUG] createEdges: ${t3 - t2}ms (${edges.length} edges)`);
 
     // Note: Skipping edge deletion - workers close the DB connection
     // TODO: Fix DB connection lifecycle with workers
-    const t4 = Date.now();
 
     // Insert new edges into database
     if (edges.length > 0) {
       this.queries.insertEdges(edges);
     }
-    const t5 = Date.now();
-    // console.log(`[DEBUG] insertEdges: ${t5 - t4}ms`);
 
     return result;
   }

@@ -447,14 +447,17 @@ export class CodeGraph {
    * - Import-based resolution
    * - Name-based symbol matching
    */
-  resolveReferences(onProgress?: (current: number, total: number) => void): ResolutionResult {
+  async resolveReferences(
+    numWorkers: number = 4,
+    onProgress?: (current: number, total: number) => void
+  ): Promise<ResolutionResult> {
     // Get all unresolved references from the database
     const t1 = Date.now();
     const unresolvedRefs = this.queries.getUnresolvedReferences();
     const t2 = Date.now();
     console.log(`[DEBUG] getUnresolvedReferences: ${t2 - t1}ms (${unresolvedRefs.length} refs)`);
     
-    const result = this.resolver.resolveAndPersist(unresolvedRefs, onProgress);
+    const result = await this.resolver.resolveAndPersist(unresolvedRefs, numWorkers, onProgress);
     const t3 = Date.now();
     console.log(`[DEBUG] resolveAndPersist: ${t3 - t2}ms`);
     

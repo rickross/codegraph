@@ -354,7 +354,11 @@ program
           let lastUpdate = Date.now();
           let prepMessageCleared = false;
           
-          const resolveResult = cg.resolveReferences((current, total) => {
+          // Use CPU count minus 1 for workers (leave one core for main thread)
+          const numWorkers = Math.max(1, require('os').cpus().length - 1);
+          console.log(chalk.dim(`Using ${numWorkers} worker threads for parallel resolution`));
+          
+          const resolveResult = await cg.resolveReferences(numWorkers, (current, total) => {
             // Clear "Preparing..." message on first progress update
             if (!prepMessageCleared) {
               process.stdout.write('\r' + ' '.repeat(80) + '\r');

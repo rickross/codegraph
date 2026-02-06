@@ -6,6 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { Worker } from 'worker_threads';
 import { Node, UnresolvedReference, Edge } from '../types';
 import { QueryBuilder } from '../db/queries';
 import {
@@ -164,7 +165,93 @@ export class ReferenceResolver {
   }
 
   /**
-   * Resolve all unresolved references
+   * Resolve all unresolved references in parallel using worker threads
+   */
+  async resolveAllParallel(
+    unresolvedRefs: UnresolvedReference[],
+    numWorkers: number = 4,
+    onProgress?: (current: number, total: number) => void
+  ): Promise<ResolutionResult> {
+    if (unresolvedRefs.length === 0 || numWorkers <= 1) {
+      // Fall back to single-threaded if too few refs or workers
+      return this.resolveAll(unresolvedRefs, onProgress);
+    }
+
+    const t1 = Date.now();
+    console.log(`[DEBUG] Starting parallel resolution with ${numWorkers} workers...`);
+
+    // Split refs into chunks
+    const chunkSize = Math.ceil(unresolvedRefs.length / numWorkers);
+    const chunks: UnresolvedReference[][] = [];
+    for (let i = 0; i < unresolvedRefs.length; i += chunkSize) {
+      chunks.push(unresolvedRefs.slice(i, i + chunkSize));
+    }
+
+    console.log(`[DEBUG] Split ${unresolvedRefs.length} refs into ${chunks.length} chunks of ~${chunkSize} refs each`);
+
+    // Spawn workers
+    const workerPath = path.join(__dirname, 'worker.js');
+    const dbPath = path.join(this.projectRoot, '.codegraph', 'codegraph.db');
+    
+    const workers = chunks.map((chunk, idx) => {
+      return new Promise<ResolutionResult>((resolve, reject) => {
+        const worker = new Worker(workerPath, {
+          workerData: {
+            projectRoot: this.projectRoot,
+            dbPath,
+            refs: chunk,
+          },
+        });
+
+        worker.on('message', (result: ResolutionResult) => {
+          console.log(`[DEBUG] Worker ${idx} completed: ${result.stats.resolved} resolved, ${result.stats.unresolved} unresolved`);
+          resolve(result);
+        });
+
+        worker.on('error', reject);
+        worker.on('exit', (code) => {
+          if (code !== 0) {
+            reject(new Error(`Worker ${idx} exited with code ${code}`));
+          }
+        });
+      });
+    });
+
+    // Wait for all workers
+    const results = await Promise.all(workers);
+    const t2 = Date.now();
+    console.log(`[DEBUG] All workers completed in ${t2 - t1}ms`);
+
+    // Merge results
+    const merged: ResolutionResult = {
+      resolved: [],
+      unresolved: [],
+      stats: {
+        total: unresolvedRefs.length,
+        resolved: 0,
+        unresolved: 0,
+        byMethod: {},
+      },
+    };
+
+    for (const result of results) {
+      merged.resolved.push(...result.resolved);
+      merged.unresolved.push(...result.unresolved);
+      merged.stats.resolved += result.stats.resolved;
+      merged.stats.unresolved += result.stats.unresolved;
+      
+      // Merge byMethod counts
+      for (const [method, count] of Object.entries(result.stats.byMethod)) {
+        merged.stats.byMethod[method] = (merged.stats.byMethod[method] || 0) + count;
+      }
+    }
+
+    console.log(`[DEBUG] Merged results: ${merged.stats.resolved} resolved, ${merged.stats.unresolved} unresolved`);
+    return merged;
+  }
+
+  /**
+   * Resolve all unresolved references (single-threaded)
    */
   resolveAll(
     unresolvedRefs: UnresolvedReference[],
@@ -305,12 +392,13 @@ export class ReferenceResolver {
   /**
    * Resolve and persist edges to database
    */
-  resolveAndPersist(
+  async resolveAndPersist(
     unresolvedRefs: UnresolvedReference[],
+    numWorkers: number = 4,
     onProgress?: (current: number, total: number) => void
-  ): ResolutionResult {
+  ): Promise<ResolutionResult> {
     const t1 = Date.now();
-    const result = this.resolveAll(unresolvedRefs, onProgress);
+    const result = await this.resolveAllParallel(unresolvedRefs, numWorkers, onProgress);
     const t2 = Date.now();
     console.log(`[DEBUG] resolveAll total: ${t2 - t1}ms`);
 

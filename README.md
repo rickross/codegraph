@@ -4,7 +4,9 @@
 
 ### Supercharge Claude Code with Semantic Code Intelligence
 
-**30% fewer tokens • 25% fewer tool calls • 100% local**
+**30% fewer tokens • 25% fewer tool calls • 100% local***
+
+<sub>*Semantic search downloads a ~100MB model on first use; all processing is offline after that.</sub>
 
 [![npm version](https://img.shields.io/npm/v/@colbymchenry/codegraph.svg)](https://www.npmjs.com/package/@colbymchenry/codegraph)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -19,6 +21,7 @@ npx @colbymchenry/codegraph
 ```
 
 <sub>Interactive installer configures Claude Code automatically</sub>
+
 
 </div>
 
@@ -59,6 +62,21 @@ We ran the same complex task 3 times with and without CodeGraph:
 | 2 | 2 | 55 | 149.3k | 64.0k | 1m 27s |
 | 3 | 2 | 51 | 146.7k | 62.3k | 1m 17s |
 | **Avg** | **2.3** | **60** | **157.8k** | **68.9k** | **1m 33s** |
+
+</details>
+
+<details>
+<summary><strong>Reproducing the benchmark</strong></summary>
+
+The token and tool-call numbers above were measured manually by giving Claude Code the same task (implementing a feature in a ~10k-line TypeScript project) three times with and without CodeGraph, then reading the per-agent token counts from the Claude Code output.
+
+To run the **precision/recall evaluation suite** against the included test fixtures:
+
+```bash
+npm test -- __tests__/evaluation/evaluation.test.ts
+```
+
+This runs search, callers/callees, impact, and context queries against two fixture projects (TypeScript and Python) and reports precision, recall, and F1 scores for each.
 
 </details>
 
@@ -135,7 +153,7 @@ TypeScript, JavaScript, Python, Go, Rust, Java, C#, PHP, Ruby, C, C++, Swift, Ko
 <td width="33%" valign="top">
 
 ### 🔒 100% Local
-No data leaves your machine. No API keys. No external services. Everything runs on your local SQLite database.
+No API keys. No external services. Everything runs on your local SQLite database. Semantic search requires a one-time ~100MB model download; after that, all processing is fully offline.
 
 </td>
 <td width="33%" valign="top">
@@ -591,8 +609,7 @@ The `.codegraph/config.json` file controls indexing behavior:
     "*.min.js"
   ],
   "frameworks": ["express", "react"],
-  "maxFileSize": 1048576,
-  "gitHooksEnabled": true
+  "maxFileSize": 1048576
 }
 ```
 
@@ -603,8 +620,7 @@ The `.codegraph/config.json` file controls indexing behavior:
 | `languages` | Languages to index (auto-detected if empty) | `[]` |
 | `exclude` | Glob patterns to ignore | `["node_modules/**", ...]` |
 | `frameworks` | Framework hints for better resolution | `[]` |
-| `maxFileSize` | Skip files larger than this (bytes) | `1048576` (1MB) |
-| `gitHooksEnabled` | Enable git hook installation | `true` |
+| `maxFileSize` | Skip files larger than this (bytes). Skipped files won't appear in the graph. | `1048576` (1MB) |
 
 ## 🌐 Supported Languages
 
@@ -648,6 +664,14 @@ Run `codegraph init` in your project directory first.
 - Run `codegraph sync` to pick up recent changes
 - Check if the file's language is supported
 - Verify the file isn't excluded by config patterns
+- Files larger than `maxFileSize` (default 1MB) are silently skipped during indexing. Increase the limit in `.codegraph/config.json` if needed
+
+---
+
+## 📚 Documentation
+
+- **[Implementation Plan](IMPLEMENTATION_PLAN.md)** - Technical architecture and design decisions
+- **[Contributing Guide](CLAUDE.md)** - Guidelines for contributing to CodeGraph
 
 ---
 

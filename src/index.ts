@@ -49,7 +49,7 @@ import { GraphTraverser, GraphQueryManager } from './graph';
 import { VectorManager, createVectorManager, EmbeddingProgress } from './vectors';
 import { ContextBuilder, createContextBuilder } from './context';
 import { GitHooksManager, createGitHooksManager, HookInstallResult, HookRemoveResult } from './sync';
-import { Mutex } from './utils';
+import { Mutex, FileLock } from './utils';
 
 // Re-export types for consumers
 export * from './types';
@@ -75,7 +75,7 @@ export {
   silentLogger,
   defaultLogger,
 } from './errors';
-export { Mutex, processInBatches, debounce, throttle, MemoryMonitor } from './utils';
+export { Mutex, FileLock, processInBatches, debounce, throttle, MemoryMonitor } from './utils';
 export { MCPServer } from './mcp';
 
 /**
@@ -132,8 +132,10 @@ export class CodeGraph {
   private contextBuilder: ContextBuilder;
   private gitHooksManager: GitHooksManager;
 
-  // Mutex for preventing concurrent indexing operations
+  // Mutex for preventing concurrent indexing within this process
   private indexMutex = new Mutex();
+  // File lock for preventing concurrent writes across processes
+  private fileLock: FileLock;
 
   private constructor(
     db: DatabaseConnection,
@@ -166,6 +168,10 @@ export class CodeGraph {
     );
     // Git hooks manager
     this.gitHooksManager = createGitHooksManager(projectRoot);
+    // Cross-process file lock
+    this.fileLock = new FileLock(
+      path.join(projectRoot, '.codegraph', 'codegraph.lock')
+    );
   }
 
   // ===========================================================================
@@ -321,6 +327,7 @@ export class CodeGraph {
    * Close the CodeGraph instance and release resources
    */
   close(): void {
+    this.fileLock.release();
     this.db.close();
   }
 
@@ -367,21 +374,24 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async indexAll(options: IndexOptions = {}): Promise<IndexResult> {
-    return this.indexMutex.withLock(async () => {
-      const result = await this.orchestrator.indexAll(options.onProgress, options.signal);
+    return this.fileLock.withLockAsync(() =>
+      this.indexMutex.withLock(async () => {
+        const result = await this.orchestrator.indexAll(options.onProgress, options.signal);
 
-      // Resolve references to create call/import/extends edges
-      if (result.success && result.filesIndexed > 0) {
-        options.onProgress?.({
-          phase: 'resolving',
-          current: 0,
-          total: 1,
-        });
-        this.resolveReferences();
-      }
+        // Resolve references to create call/import/extends edges
+        // Use parallel resolution for performance (4.6x faster than single-threaded)
+        if (result.success && result.filesIndexed > 0) {
+          options.onProgress?.({
+            phase: 'resolving',
+            current: 0,
+            total: 1,
+          });
+          await this.resolveReferences();
+        }
 
-      return result;
-    });
+        return result;
+      })
+    );
   }
 
   /**
@@ -390,9 +400,11 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async indexFiles(filePaths: string[]): Promise<IndexResult> {
-    return this.indexMutex.withLock(async () => {
-      return this.orchestrator.indexFiles(filePaths);
-    });
+    return this.fileLock.withLockAsync(() =>
+      this.indexMutex.withLock(async () => {
+        return this.orchestrator.indexFiles(filePaths);
+      })
+    );
   }
 
   /**
@@ -401,17 +413,19 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async sync(options: IndexOptions = {}): Promise<SyncResult> {
-    return this.indexMutex.withLock(async () => {
-      const result = await this.orchestrator.sync(options.onProgress);
+    return this.fileLock.withLockAsync(() =>
+      this.indexMutex.withLock(async () => {
+        const result = await this.orchestrator.sync(options.onProgress);
 
-      // Resolve references if files were updated
-      // Cache optimization makes full resolution fast even with 20K+ refs
-      if (result.filesAdded > 0 || result.filesModified > 0) {
-        this.resolveReferences();
-      }
+        // Resolve references if files were updated
+        // Use parallel resolution for performance
+        if (result.filesAdded > 0 || result.filesModified > 0) {
+          await this.resolveReferences();
+        }
 
-      return result;
-    });
+        return result;
+      })
+    );
   }
 
   /**
@@ -447,6 +461,9 @@ export class CodeGraph {
    * - Framework-specific patterns (React, Express, Laravel)
    * - Import-based resolution
    * - Name-based symbol matching
+   */
+  /**
+   * Resolve references using parallel workers for performance
    */
   async resolveReferences(
     numWorkers: number = 4,
@@ -491,6 +508,13 @@ export class CodeGraph {
    */
   reinitializeResolver(): void {
     this.resolver.initialize();
+  }
+
+  /**
+   * Get detected frameworks from the resolver
+   */
+  getDetectedFrameworks(): string[] {
+    return this.resolver.getDetectedFrameworks();
   }
 
   // ===========================================================================

@@ -239,6 +239,11 @@ program
         if (result.success) {
           success(`Indexed ${formatNumber(result.filesIndexed)} files`);
           info(`Created ${formatNumber(result.nodesCreated)} nodes and ${formatNumber(result.edgesCreated)} edges`);
+          const sizeWarnings = result.errors.filter(e => e.message.includes('exceeds max size'));
+          if (sizeWarnings.length > 0) {
+            warn(`${sizeWarnings.length} file(s) exceeded maxFileSize and were not indexed`);
+            info(`Adjust maxFileSize in .codegraph/config.json to include them`);
+          }
           info(`Completed in ${formatDuration(result.durationMs)}`);
         } else {
           warn(`Indexing completed with ${result.errors.length} errors`);
@@ -247,7 +252,7 @@ program
         info('Run "codegraph index" to index the project');
       }
 
-      cg.destroy();
+      cg.close();
     } catch (err) {
       error(`Failed to initialize: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
@@ -310,14 +315,15 @@ program
   .action(async (pathArg: string | undefined, options: { force?: boolean; quiet?: boolean }) => {
     const projectPath = resolveProjectPath(pathArg);
 
-    try {
-      if (!CodeGraph.isInitialized(projectPath)) {
-        error(`CodeGraph not initialized in ${projectPath}`);
-        info('Run "codegraph init" first');
-        process.exit(1);
-      }
+    if (!CodeGraph.isInitialized(projectPath)) {
+      error(`CodeGraph not initialized in ${projectPath}`);
+      info('Run "codegraph init" first');
+      process.exit(1);
+    }
 
-      const cg = await CodeGraph.open(projectPath);
+    let cg: CodeGraph | null = null;
+    try {
+      cg = await CodeGraph.open(projectPath);
 
       if (!options.quiet) {
         console.log(chalk.bold('\nIndexing project...\n'));
@@ -344,6 +350,14 @@ program
         if (!options.quiet) {
           success(`Indexed ${formatNumber(result.filesIndexed)} files`);
           info(`Created ${formatNumber(result.nodesCreated)} nodes and ${formatNumber(result.edgesCreated)} edges`);
+          if (result.filesSkipped > 0) {
+            info(`Skipped ${formatNumber(result.filesSkipped)} files (unsupported language or no symbols)`);
+          }
+          const sizeWarnings = result.errors.filter(e => e.message.includes('exceeds max size'));
+          if (sizeWarnings.length > 0) {
+            warn(`${sizeWarnings.length} file(s) exceeded maxFileSize and were not indexed`);
+            info(`Adjust maxFileSize in .codegraph/config.json to include them`);
+          }
           info(`Completed in ${formatDuration(result.durationMs)}`);
           
           // Resolve references
@@ -399,11 +413,11 @@ program
         }
         process.exit(1);
       }
-
-      cg.destroy();
     } catch (err) {
       error(`Failed to index: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
+    } finally {
+      cg?.close();
     }
   });
 
@@ -417,15 +431,16 @@ program
   .action(async (pathArg: string | undefined, options: { quiet?: boolean }) => {
     const projectPath = resolveProjectPath(pathArg);
 
-    try {
-      if (!CodeGraph.isInitialized(projectPath)) {
-        if (!options.quiet) {
-          error(`CodeGraph not initialized in ${projectPath}`);
-        }
-        process.exit(1);
+    if (!CodeGraph.isInitialized(projectPath)) {
+      if (!options.quiet) {
+        error(`CodeGraph not initialized in ${projectPath}`);
       }
+      process.exit(1);
+    }
 
-      const cg = await CodeGraph.open(projectPath);
+    let cg: CodeGraph | null = null;
+    try {
+      cg = await CodeGraph.open(projectPath);
 
       const result = await cg.sync({
         onProgress: options.quiet ? undefined : printProgress,
@@ -455,13 +470,13 @@ program
           info(`Updated ${formatNumber(result.nodesUpdated)} nodes in ${formatDuration(result.durationMs)}`);
         }
       }
-
-      cg.destroy();
     } catch (err) {
       if (!options.quiet) {
         error(`Failed to sync: ${err instanceof Error ? err.message : String(err)}`);
       }
       process.exit(1);
+    } finally {
+      cg?.close();
     }
   });
 
@@ -474,16 +489,17 @@ program
   .action(async (pathArg: string | undefined) => {
     const projectPath = resolveProjectPath(pathArg);
 
-    try {
-      if (!CodeGraph.isInitialized(projectPath)) {
-        console.log(chalk.bold('\nCodeGraph Status\n'));
-        info(`Project: ${projectPath}`);
-        warn('Not initialized');
-        info('Run "codegraph init" to initialize');
-        return;
-      }
+    if (!CodeGraph.isInitialized(projectPath)) {
+      console.log(chalk.bold('\nCodeGraph Status\n'));
+      info(`Project: ${projectPath}`);
+      warn('Not initialized');
+      info('Run "codegraph init" to initialize');
+      return;
+    }
 
-      const cg = await CodeGraph.open(projectPath);
+    let cg: CodeGraph | null = null;
+    try {
+      cg = await CodeGraph.open(projectPath);
       const stats = cg.getStats();
       const changes = cg.getChangedFiles();
 
@@ -551,10 +567,11 @@ program
         }
       }
 
-      cg.destroy();
     } catch (err) {
       error(`Failed to get status: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
+    } finally {
+      cg?.close();
     }
   });
 
@@ -571,13 +588,14 @@ program
   .action(async (search: string, options: { path?: string; limit?: string; kind?: string; json?: boolean }) => {
     const projectPath = resolveProjectPath(options.path);
 
-    try {
-      if (!CodeGraph.isInitialized(projectPath)) {
-        error(`CodeGraph not initialized in ${projectPath}`);
-        process.exit(1);
-      }
+    if (!CodeGraph.isInitialized(projectPath)) {
+      error(`CodeGraph not initialized in ${projectPath}`);
+      process.exit(1);
+    }
 
-      const cg = await CodeGraph.open(projectPath);
+    let cg: CodeGraph | null = null;
+    try {
+      cg = await CodeGraph.open(projectPath);
 
       const limit = parseInt(options.limit || '10', 10);
       const results = cg.searchNodes(search, {
@@ -611,11 +629,11 @@ program
           }
         }
       }
-
-      cg.destroy();
     } catch (err) {
       error(`Search failed: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
+    } finally {
+      cg?.close();
     }
   });
 
@@ -639,13 +657,14 @@ program
   }) => {
     const projectPath = resolveProjectPath(options.path);
 
-    try {
-      if (!CodeGraph.isInitialized(projectPath)) {
-        error(`CodeGraph not initialized in ${projectPath}`);
-        process.exit(1);
-      }
+    if (!CodeGraph.isInitialized(projectPath)) {
+      error(`CodeGraph not initialized in ${projectPath}`);
+      process.exit(1);
+    }
 
-      const cg = await CodeGraph.open(projectPath);
+    let cg: CodeGraph | null = null;
+    try {
+      cg = await CodeGraph.open(projectPath);
 
       const context = await cg.buildContext(task, {
         maxNodes: parseInt(options.maxNodes || '50', 10),
@@ -656,11 +675,11 @@ program
 
       // Output the context
       console.log(context);
-
-      cg.destroy();
     } catch (err) {
       error(`Failed to build context: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
+    } finally {
+      cg?.close();
     }
   });
 
@@ -678,17 +697,17 @@ hooksCommand
   .action(async (options: { path?: string }) => {
     const projectPath = resolveProjectPath(options.path);
 
-    try {
-      if (!CodeGraph.isInitialized(projectPath)) {
-        error(`CodeGraph not initialized in ${projectPath}`);
-        process.exit(1);
-      }
+    if (!CodeGraph.isInitialized(projectPath)) {
+      error(`CodeGraph not initialized in ${projectPath}`);
+      process.exit(1);
+    }
 
-      const cg = await CodeGraph.open(projectPath);
+    let cg: CodeGraph | null = null;
+    try {
+      cg = await CodeGraph.open(projectPath);
 
       if (!cg.isGitRepository()) {
         error('Not a git repository');
-        cg.destroy();
         process.exit(1);
       }
 
@@ -703,11 +722,11 @@ hooksCommand
         error(result.message);
         process.exit(1);
       }
-
-      cg.destroy();
     } catch (err) {
       error(`Failed to install hooks: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
+    } finally {
+      cg?.close();
     }
   });
 
@@ -718,17 +737,17 @@ hooksCommand
   .action(async (options: { path?: string }) => {
     const projectPath = resolveProjectPath(options.path);
 
-    try {
-      if (!CodeGraph.isInitialized(projectPath)) {
-        error(`CodeGraph not initialized in ${projectPath}`);
-        process.exit(1);
-      }
+    if (!CodeGraph.isInitialized(projectPath)) {
+      error(`CodeGraph not initialized in ${projectPath}`);
+      process.exit(1);
+    }
 
-      const cg = await CodeGraph.open(projectPath);
+    let cg: CodeGraph | null = null;
+    try {
+      cg = await CodeGraph.open(projectPath);
 
       if (!cg.isGitRepository()) {
         error('Not a git repository');
-        cg.destroy();
         process.exit(1);
       }
 
@@ -743,11 +762,11 @@ hooksCommand
         error(result.message);
         process.exit(1);
       }
-
-      cg.destroy();
     } catch (err) {
       error(`Failed to remove hooks: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
+    } finally {
+      cg?.close();
     }
   });
 
@@ -758,31 +777,47 @@ hooksCommand
   .action(async (options: { path?: string }) => {
     const projectPath = resolveProjectPath(options.path);
 
-    try {
-      if (!CodeGraph.isInitialized(projectPath)) {
-        error(`CodeGraph not initialized in ${projectPath}`);
-        process.exit(1);
-      }
+    if (!CodeGraph.isInitialized(projectPath)) {
+      error(`CodeGraph not initialized in ${projectPath}`);
+      process.exit(1);
+    }
 
-      const cg = await CodeGraph.open(projectPath);
+    let cg: CodeGraph | null = null;
+    try {
+      cg = await CodeGraph.open(projectPath);
 
       if (!cg.isGitRepository()) {
         info('Not a git repository');
-        cg.destroy();
         return;
       }
 
       if (cg.isGitHookInstalled()) {
         success('Git hook is installed');
+
+        // Check sync log for recent errors
+        const syncLogPath = path.join(projectPath, '.codegraph', 'sync.log');
+        if (fs.existsSync(syncLogPath)) {
+          try {
+            const logContent = fs.readFileSync(syncLogPath, 'utf-8').trim();
+            if (logContent.length > 0) {
+              const lines = logContent.split('\n');
+              const lastLines = lines.slice(-5);
+              warn('Recent sync errors (see .codegraph/sync.log):');
+              for (const line of lastLines) {
+                console.log(chalk.dim(`  ${line}`));
+              }
+            }
+          } catch { /* ignore read failure */ }
+        }
       } else {
         warn('Git hook is not installed');
         info('Run "codegraph hooks install" to enable auto-sync');
       }
-
-      cg.destroy();
     } catch (err) {
       error(`Failed to check hooks: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
+    } finally {
+      cg?.close();
     }
   });
 

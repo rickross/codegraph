@@ -185,7 +185,13 @@ export class ReferenceResolver {
 
 
     // Spawn workers with read-only DB access
-    const workerPath = path.join(__dirname, 'worker.js');
+    // ALWAYS use the compiled worker.js (works in both dev/test and production)
+    // If running from src/ (tests), use dist/resolution/worker.js
+    // If running from dist/ (production), use ./worker.js
+    const workerJsPath = path.join(__dirname, 'worker.js');
+    const distWorkerPath = path.join(__dirname, '../../dist/resolution/worker.js');
+    const workerPath = fs.existsSync(workerJsPath) ? workerJsPath : distWorkerPath;
+    
     const { getDatabasePath } = await import('../db');
     const dbPath = getDatabasePath(this.projectRoot);
     

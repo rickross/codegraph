@@ -18,6 +18,7 @@
     "copy-assets": "cp src/db/schema.sql dist/db/",
     "dev": "tsc --watch",
     "cli": "npm run build && node dist/bin/codegraph.js",
+    "pretest": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:eval": "vitest run __tests__/evaluation/",
@@ -37,34 +38,33 @@
     "better-sqlite3": "^11.0.0",
     "commander": "^14.0.2",
     "figlet": "^1.8.0",
+    "picomatch": "^4.0.3",
     "sqlite-vss": "^0.1.2",
-    "tree-sitter": "0.22.4",
-    "tree-sitter-c": "0.23.4",
-    "tree-sitter-c-sharp": "0.23.1",
-    "tree-sitter-cpp": "0.23.4",
-    "tree-sitter-go": "0.23.4",
-    "tree-sitter-java": "0.23.5",
-    "tree-sitter-javascript": "0.23.1",
-    "tree-sitter-kotlin": "0.3.8",
-    "tree-sitter-liquid": "github:hankthetank27/tree-sitter-liquid",
-    "tree-sitter-php": "0.23.11",
-    "tree-sitter-python": "0.23.6",
-    "tree-sitter-ruby": "0.23.1",
-    "tree-sitter-rust": "0.23.2",
-    "tree-sitter-swift": "0.7.1",
-    "tree-sitter-typescript": "0.23.2"
+    "tree-sitter": "^0.22.4",
+    "tree-sitter-c": "^0.23.4",
+    "tree-sitter-c-sharp": "^0.23.1",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-go": "^0.23.4",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-kotlin": "^0.3.8",
+    "tree-sitter-liquid": "github:hankthetank27/tree-sitter-liquid#d6ebde3974742cd1b61b55d1d94aab1dacb41056",
+    "tree-sitter-php": "^0.23.11",
+    "tree-sitter-python": "^0.23.6",
+    "tree-sitter-ruby": "^0.23.1",
+    "tree-sitter-rust": "^0.23.2",
+    "tree-sitter-swift": "^0.7.1",
+    "tree-sitter-typescript": "^0.23.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
     "@types/figlet": "^1.5.8",
     "@types/node": "^20.19.30",
+    "@types/picomatch": "^4.0.2",
     "typescript": "^5.0.0",
-    "vitest": "^2.0.0"
+    "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "overrides": {
-    "tree-sitter": "0.22.4"
   }
 }

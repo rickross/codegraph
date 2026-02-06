@@ -18,6 +18,7 @@ import { QueryBuilder } from '../db/queries';
 import { extractFromSource } from './tree-sitter';
 import { detectLanguage, isLanguageSupported } from './grammars';
 import { logDebug } from '../errors';
+import picomatch from 'picomatch';
 
 /**
  * Progress callback for indexing operations
@@ -68,29 +69,11 @@ export function hashContent(content: string): string {
 }
 
 /**
- * Check if a path matches any glob pattern (simplified)
+ * Check if a path matches a glob pattern using picomatch.
+ * Using a well-tested library prevents ReDoS from crafted patterns.
  */
 function matchesGlob(filePath: string, pattern: string): boolean {
-  // Convert glob to regex using placeholders to avoid conflicts
-  let regexStr = pattern;
-
-  // Replace glob patterns with placeholders first
-  regexStr = regexStr.replace(/\*\*\//g, '\x00GLOBSTAR_SLASH\x00');
-  regexStr = regexStr.replace(/\*\*/g, '\x00GLOBSTAR\x00');
-  regexStr = regexStr.replace(/\*/g, '\x00STAR\x00');
-  regexStr = regexStr.replace(/\?/g, '\x00QUESTION\x00');
-
-  // Escape regex special characters
-  regexStr = regexStr.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-
-  // Replace placeholders with regex equivalents
-  regexStr = regexStr.replace(/\x00GLOBSTAR_SLASH\x00/g, '(?:.*/)?');  // **/ = zero or more dirs
-  regexStr = regexStr.replace(/\x00GLOBSTAR\x00/g, '.*');              // ** = anything
-  regexStr = regexStr.replace(/\x00STAR\x00/g, '[^/]*');               // * = anything except /
-  regexStr = regexStr.replace(/\x00QUESTION\x00/g, '.');               // ? = single char
-
-  const regex = new RegExp(`^${regexStr}$`);
-  return regex.test(filePath);
+  return picomatch.isMatch(filePath, pattern, { dot: true });
 }
 
 /**
@@ -127,8 +110,25 @@ export function scanDirectory(
 ): string[] {
   const files: string[] = [];
   let count = 0;
+  // Track visited real paths to detect symlink cycles
+  const visitedDirs = new Set<string>();
 
   function walk(dir: string): void {
+    // Resolve real path to detect symlink cycles
+    let realDir: string;
+    try {
+      realDir = fs.realpathSync(dir);
+    } catch {
+      logDebug('Skipping unresolvable directory', { dir });
+      return;
+    }
+
+    if (visitedDirs.has(realDir)) {
+      logDebug('Skipping already-visited directory (symlink cycle)', { dir, realDir });
+      return;
+    }
+    visitedDirs.add(realDir);
+
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -141,7 +141,28 @@ export function scanDirectory(
       const fullPath = path.join(dir, entry.name);
       const relativePath = path.relative(rootDir, fullPath);
 
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() || entry.isSymbolicLink()) {
+        // For symlinks, check if they point to a directory
+        if (entry.isSymbolicLink()) {
+          try {
+            const stat = fs.statSync(fullPath);
+            if (!stat.isDirectory()) {
+              // Symlink to a file — treat as file below
+              if (stat.isFile() && shouldIncludeFile(relativePath, config)) {
+                files.push(relativePath);
+                count++;
+                if (onProgress) {
+                  onProgress(count, relativePath);
+                }
+              }
+              continue;
+            }
+          } catch {
+            logDebug('Skipping broken symlink', { path: fullPath });
+            continue;
+          }
+        }
+
         // Check if directory should be excluded
         const dirPattern = relativePath + '/';
         let excluded = false;

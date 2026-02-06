@@ -256,6 +256,12 @@ export interface UnresolvedReference {
   line: number;
   column: number;
 
+  /** File path (denormalized for performance) */
+  filePath: string;
+
+  /** Language (denormalized for performance) */
+  language: Language;
+
   /** Possible qualified names it might resolve to */
   candidates?: string[];
 }

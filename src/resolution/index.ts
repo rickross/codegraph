@@ -177,7 +177,7 @@ export class ReferenceResolver {
     const unresolved: UnresolvedRef[] = [];
     const byMethod: Record<string, number> = {};
 
-    // Convert to our internal format
+    // Convert to our internal format (now filePath/language come from DB)
     const t4 = Date.now();
     const refs: UnresolvedRef[] = unresolvedRefs.map((ref) => ({
       fromNodeId: ref.fromNodeId,
@@ -185,8 +185,8 @@ export class ReferenceResolver {
       referenceKind: ref.referenceKind,
       line: ref.line,
       column: ref.column,
-      filePath: this.getFilePathFromNodeId(ref.fromNodeId),
-      language: this.getLanguageFromNodeId(ref.fromNodeId),
+      filePath: ref.filePath,
+      language: ref.language,
     }));
     const t5 = Date.now();
     console.log(`[DEBUG] Convert refs format: ${t5 - t4}ms (${refs.length} refs)`);
@@ -389,21 +389,6 @@ export class ReferenceResolver {
     return false;
   }
 
-  /**
-   * Get file path from node ID
-   */
-  private getFilePathFromNodeId(nodeId: string): string {
-    const node = this.queries.getNodeById(nodeId);
-    return node?.filePath || '';
-  }
-
-  /**
-   * Get language from node ID
-   */
-  private getLanguageFromNodeId(nodeId: string): UnresolvedRef['language'] {
-    const node = this.queries.getNodeById(nodeId);
-    return node?.language || 'unknown';
-  }
 }
 
 /**

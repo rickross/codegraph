@@ -1098,6 +1098,8 @@ export class TreeSitterExtractor {
           referenceKind: 'imports',
           line: node.startPosition.row + 1,
           column: node.startPosition.column,
+          filePath: this.filePath,
+          language: this.language,
         });
       }
     }
@@ -1138,6 +1140,8 @@ export class TreeSitterExtractor {
         referenceKind: 'calls',
         line: node.startPosition.row + 1,
         column: node.startPosition.column,
+        filePath: this.filePath,
+        language: this.language,
       });
     }
   }
@@ -1189,6 +1193,8 @@ export class TreeSitterExtractor {
             referenceKind: 'extends',
             line: child.startPosition.row + 1,
             column: child.startPosition.column,
+            filePath: this.filePath,
+            language: this.language,
           });
         }
       }
@@ -1208,6 +1214,8 @@ export class TreeSitterExtractor {
               referenceKind: 'implements',
               line: iface.startPosition.row + 1,
               column: iface.startPosition.column,
+              filePath: this.filePath,
+              language: this.language,
             });
           }
         }
@@ -1228,6 +1236,7 @@ export class TreeSitterExtractor {
 export class LiquidExtractor {
   private filePath: string;
   private source: string;
+  private language: Language = 'liquid';
   private nodes: Node[] = [];
   private edges: Edge[] = [];
   private unresolvedReferences: UnresolvedReference[] = [];
@@ -1345,6 +1354,8 @@ export class LiquidExtractor {
         referenceKind: 'references',
         line,
         column: match.index - this.getLineStart(line),
+        filePath: this.filePath,
+        language: this.language,
       });
     }
   }
@@ -1394,6 +1405,8 @@ export class LiquidExtractor {
         referenceKind: 'references',
         line,
         column: match.index - this.getLineStart(line),
+        filePath: this.filePath,
+        language: this.language,
       });
     }
   }

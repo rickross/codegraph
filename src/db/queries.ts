@@ -72,6 +72,8 @@ interface UnresolvedRefRow {
   reference_kind: string;
   line: number;
   col: number;
+  file_path: string;
+  language: string;
   candidates: string | null;
 }
 
@@ -726,8 +728,8 @@ export class QueryBuilder {
 
     if (!this.stmts.insertUnresolved) {
       this.stmts.insertUnresolved = this.db.prepare(`
-        INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, candidates)
-        VALUES (@fromNodeId, @referenceName, @referenceKind, @line, @col, @candidates)
+        INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, file_path, language, candidates)
+        VALUES (@fromNodeId, @referenceName, @referenceKind, @line, @col, @filePath, @language, @candidates)
       `);
     }
 
@@ -739,6 +741,8 @@ export class QueryBuilder {
           referenceKind: ref.referenceKind,
           line: ref.line,
           col: ref.column,
+          filePath: ref.filePath,
+          language: ref.language,
           candidates: ref.candidates ? JSON.stringify(ref.candidates) : null,
         });
       }
@@ -775,6 +779,8 @@ export class QueryBuilder {
       referenceKind: row.reference_kind as EdgeKind,
       line: row.line,
       column: row.col,
+      filePath: row.file_path,
+      language: row.language as Language,
       candidates: row.candidates ? JSON.parse(row.candidates) : undefined,
     }));
   }
@@ -790,6 +796,8 @@ export class QueryBuilder {
       referenceKind: row.reference_kind as EdgeKind,
       line: row.line,
       column: row.col,
+      filePath: row.file_path,
+      language: row.language as Language,
       candidates: row.candidates ? JSON.parse(row.candidates) : undefined,
     }));
   }

@@ -469,8 +469,16 @@ export class CodeGraph {
       this.queries = new QueryBuilder(this.connection.getDb());
     }
     
-    // Create and insert edges in main thread
+    // Create edges in main thread
     const edges = this.resolver.createEdges(result.resolved);
+    
+    // Delete old resolved edges before inserting new ones (prevents duplicates)
+    const sourceIds = new Set(edges.map(e => e.source));
+    for (const sourceId of sourceIds) {
+      this.queries.deleteEdgesBySource(sourceId);
+    }
+    
+    // Insert new edges
     if (edges.length > 0) {
       this.queries.insertEdges(edges);
     }

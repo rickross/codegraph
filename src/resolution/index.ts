@@ -196,9 +196,19 @@ export class ReferenceResolver {
 
     console.log(`[DEBUG] Starting resolution loop for ${total} refs...`);
     const loopStart = Date.now();
+    let totalResolveOneTime = 0;
+    const slowRefs: Array<{name: string, time: number}> = [];
 
     for (const ref of refs) {
+      const resolveStart = Date.now();
       const result = this.resolveOne(ref);
+      const resolveTime = Date.now() - resolveStart;
+      totalResolveOneTime += resolveTime;
+      
+      // Track slow refs (>10ms)
+      if (resolveTime > 10) {
+        slowRefs.push({name: ref.referenceName, time: resolveTime});
+      }
 
       if (result) {
         resolved.push(result);
@@ -215,7 +225,21 @@ export class ReferenceResolver {
     }
     
     const loopEnd = Date.now();
-    console.log(`[DEBUG] Resolution loop completed: ${loopEnd - loopStart}ms`);
+    const loopTotal = loopEnd - loopStart;
+    console.log(`[DEBUG] Resolution loop completed: ${loopTotal}ms`);
+    console.log(`[DEBUG]   - Time in resolveOne: ${totalResolveOneTime}ms (${(totalResolveOneTime/loopTotal*100).toFixed(1)}%)`);
+    console.log(`[DEBUG]   - Overhead: ${loopTotal - totalResolveOneTime}ms`);
+    console.log(`[DEBUG]   - Slow refs (>10ms): ${slowRefs.length}`);
+    if (slowRefs.length > 0) {
+      slowRefs.sort((a, b) => b.time - a.time);
+      console.log(`[DEBUG]   - Top 10 slowest:`);
+      for (let i = 0; i < Math.min(10, slowRefs.length); i++) {
+        const slow = slowRefs[i];
+        if (slow) {
+          console.log(`[DEBUG]       ${slow.name}: ${slow.time}ms`);
+        }
+      }
+    }
 
     return {
       resolved,

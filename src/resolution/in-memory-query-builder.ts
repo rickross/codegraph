@@ -4,16 +4,21 @@
  */
 
 import type { Node, NodeKind, Edge } from '../types';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class InMemoryQueryBuilder {
   private nodes: Node[];
+  private projectRoot: string;
+  private fileCache: Map<string, string | null> = new Map();
   private nodeById: Map<string, Node>;
   private nodesByName: Map<string, Node[]>;
   private nodesByQualifiedName: Map<string, Node[]>;
   private nodesByFile: Map<string, Node[]>;
   private nodesByKind: Map<NodeKind, Node[]>;
 
-  constructor(nodes: Node[]) {
+  constructor(nodes: Node[], projectRoot: string) {
+    this.projectRoot = projectRoot;
     this.nodes = nodes;
     this.nodeById = new Map();
     this.nodesByName = new Map();
@@ -144,6 +149,24 @@ export class InMemoryQueryBuilder {
   getAllFiles(): Array<{ path: string }> {
     const uniquePaths = new Set(this.nodes.map(n => n.filePath));
     return Array.from(uniquePaths).map(path => ({ path }));
+  }
+
+  getFileContent(filePath: string): string | null {
+    // Check cache first
+    if (this.fileCache.has(filePath)) {
+      return this.fileCache.get(filePath)!;
+    }
+
+    // Read from filesystem
+    const fullPath = path.join(this.projectRoot, filePath);
+    try {
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      this.fileCache.set(filePath, content);
+      return content;
+    } catch {
+      this.fileCache.set(filePath, null);
+      return null;
+    }
   }
 
   // These methods shouldn't be called in workers (no DB writes)

@@ -20,7 +20,8 @@ if (!parentPort) {
 const { projectRoot, allNodes, refs } = workerData as WorkerData;
 
 // Create in-memory query builder from pre-loaded nodes
-const queries = new InMemoryQueryBuilder(allNodes);
+// Workers CAN read files directly - they share the filesystem
+const queries = new InMemoryQueryBuilder(allNodes, projectRoot);
 
 // Create resolver instance
 const resolver = new ReferenceResolver(projectRoot, queries);

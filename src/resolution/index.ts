@@ -198,6 +198,7 @@ export class ReferenceResolver {
 
 
     // Pre-load all nodes once for all workers (avoid DB access in workers)
+    // Workers CAN read files directly from filesystem (same process, just different threads)
     const allNodes = this.queries.getAllNodes();
     
     // Spawn workers with pre-loaded data

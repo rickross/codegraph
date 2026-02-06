@@ -268,10 +268,11 @@ program
         output: process.stdout,
       });
 
-      readline.question('Are you sure you want to continue? (yes/no): ', async (answer: string) => {
+      readline.question('Are you sure you want to continue? (y/n): ', async (answer: string) => {
         readline.close();
         
-        if (answer.toLowerCase() !== 'yes') {
+        const normalized = answer.toLowerCase().trim();
+        if (normalized !== 'y' && normalized !== 'yes') {
           info('Cancelled');
           process.exit(0);
         }

@@ -296,14 +296,8 @@ export class ExtractionOrchestrator {
     // To separate them, we'd need to refactor indexFile() to return parse/store times separately
     timing.storingMs = 0; // Included in parsingMs for now
 
-    // Phase 3: Resolve references
-    onProgress?.({
-      phase: 'resolving',
-      current: 0,
-      total: 1,
-    });
-
-    // TODO: Implement reference resolution in Phase 3
+    // Note: Reference resolution happens separately via resolveReferences()
+    // after indexAll() completes (see CLI in bin/codegraph.ts)
 
     return {
       success: errors.filter((e) => e.severity === 'error').length === 0,

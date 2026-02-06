@@ -341,11 +341,13 @@ program
           
           const resolveStart = Date.now();
           let lastUpdate = Date.now();
+          let prepMessageCleared = false;
           
           const resolveResult = cg.resolveReferences((current, total) => {
             // Clear "Preparing..." message on first progress update
-            if (current === 100) {
+            if (!prepMessageCleared) {
               process.stdout.write('\r' + ' '.repeat(80) + '\r');
+              prepMessageCleared = true;
             }
             const now = Date.now();
             // Update every 100ms or on completion

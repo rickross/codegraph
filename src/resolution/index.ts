@@ -56,31 +56,27 @@ export class ReferenceResolver {
    * Call this before resolving many references to avoid repeated DB queries.
    */
   private warmCaches(): void {
-    // Get all nodes and index them by name and qualified name
-    const allFiles = this.queries.getAllFiles();
-    
+    // Get all nodes in one query instead of N queries (one per file)
     this.nameCache.clear();
     this.qualifiedNameCache.clear();
     
-    for (const file of allFiles) {
-      const nodes = this.queries.getNodesByFile(file.path);
+    const allNodes = this.queries.getAllNodes();
+    
+    for (const node of allNodes) {
+      // Index by name
+      if (node.name) {
+        if (!this.nameCache.has(node.name)) {
+          this.nameCache.set(node.name, []);
+        }
+        this.nameCache.get(node.name)!.push(node);
+      }
       
-      for (const node of nodes) {
-        // Index by name
-        if (node.name) {
-          if (!this.nameCache.has(node.name)) {
-            this.nameCache.set(node.name, []);
-          }
-          this.nameCache.get(node.name)!.push(node);
+      // Index by qualified name
+      if (node.qualifiedName) {
+        if (!this.qualifiedNameCache.has(node.qualifiedName)) {
+          this.qualifiedNameCache.set(node.qualifiedName, []);
         }
-        
-        // Index by qualified name
-        if (node.qualifiedName) {
-          if (!this.qualifiedNameCache.has(node.qualifiedName)) {
-            this.qualifiedNameCache.set(node.qualifiedName, []);
-          }
-          this.qualifiedNameCache.get(node.qualifiedName)!.push(node);
-        }
+        this.qualifiedNameCache.get(node.qualifiedName)!.push(node);
       }
     }
   }

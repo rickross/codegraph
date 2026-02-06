@@ -113,6 +113,17 @@ function formatDuration(ms: number): string {
 }
 
 /**
+ * Display index statistics block
+ */
+function displayIndexStats(stats: any): void {
+  console.log(chalk.bold('Index Statistics:'));
+  console.log(`  Files:     ${formatNumber(stats.fileCount)}`);
+  console.log(`  Nodes:     ${formatNumber(stats.nodeCount)}`);
+  console.log(`  Edges:     ${formatNumber(stats.edgeCount)}`);
+  console.log(`  DB Size:   ${(stats.dbSizeBytes / 1024 / 1024).toFixed(2)} MB`);
+}
+
+/**
  * Create a progress bar string
  */
 function progressBar(current: number, total: number, width: number = 30): string {
@@ -370,13 +381,7 @@ program
           
           // Show final statistics
           console.log();
-          const stats = cg.getStats();
-          console.log(chalk.bold('Index Statistics:'));
-          console.log(`  Files:     ${formatNumber(stats.fileCount)}`);
-          console.log(`  Nodes:     ${formatNumber(stats.nodeCount)}`);
-          console.log(`  Edges:     ${formatNumber(stats.edgeCount)}`);
-          const dbSizeMB = (stats.dbSizeBytes / (1024 * 1024)).toFixed(2);
-          console.log(`  DB Size:   ${dbSizeMB} MB`);
+          displayIndexStats(cg.getStats());
         }
       } else {
         if (!options.quiet) {

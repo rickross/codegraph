@@ -675,6 +675,14 @@ export class QueryBuilder {
   }
 
   /**
+   * Get all nodes (for cache warming)
+   */
+  getAllNodes(): Node[] {
+    const rows = this.db.prepare('SELECT * FROM nodes').all() as NodeRow[];
+    return rows.map(rowToNode);
+  }
+
+  /**
    * Get files that need re-indexing (hash changed)
    */
   getStaleFiles(currentHashes: Map<string, string>): FileRecord[] {

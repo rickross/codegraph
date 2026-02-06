@@ -318,12 +318,15 @@ At the start of a session, ask the user if they'd like to initialize CodeGraph:
 codegraph                   # Run interactive installer
 codegraph install           # Run interactive installer (explicit)
 codegraph init [path]       # Initialize in a project
+codegraph uninit [path]     # Remove CodeGraph from project (deletes .codegraph/)
 codegraph index [path]      # Full index
 codegraph sync [path]       # Incremental update
 codegraph status [path]     # Show statistics
 codegraph query <search>    # Search symbols
 codegraph context <task>    # Build context for AI
 codegraph hooks install     # Install git auto-sync hook
+codegraph hooks remove      # Remove git auto-sync hook
+codegraph hooks status      # Check git hooks status
 codegraph serve --mcp       # Start MCP server
 ```
 
@@ -356,6 +359,17 @@ codegraph init /path/to/project   # Initialize in specific directory
 codegraph init --index            # Initialize and immediately index
 codegraph init --no-hooks         # Skip git hook installation
 ```
+
+### `codegraph uninit [path]`
+
+Remove CodeGraph from a project directory. Deletes the `.codegraph/` directory and all indexed data.
+
+```bash
+codegraph uninit                  # Remove from current directory
+codegraph uninit /path/to/project # Remove from specific directory
+```
+
+**⚠️ Warning:** This permanently deletes all CodeGraph data. You will be prompted for confirmation.
 
 ### `codegraph index [path]`
 

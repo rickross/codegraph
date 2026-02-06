@@ -45,6 +45,11 @@ export class DatabaseConnection {
     db.pragma('temp_store = MEMORY');   // Keep temp tables in memory
     db.pragma('mmap_size = 268435456'); // 256MB memory-mapped I/O
 
+    // Run schema initialization
+    const schemaPath = path.join(__dirname, 'schema.sql');
+    const schema = fs.readFileSync(schemaPath, 'utf-8');
+    db.exec(schema);
+
     return new DatabaseConnection(db, dbPath);
   }
 

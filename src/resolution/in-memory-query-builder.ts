@@ -82,21 +82,45 @@ export class InMemoryQueryBuilder {
     const lowerQuery = query.toLowerCase();
     const results: Array<{ node: Node; score: number }> = [];
 
+    // Mimic FTS5 behavior: prefix matching, case-insensitive, scored by match quality
     for (const node of this.nodes) {
       let score = 0;
-      if (node.name?.toLowerCase().includes(lowerQuery)) {
-        score = 1;
+      const lowerName = node.name?.toLowerCase();
+      const lowerQualified = node.qualifiedName?.toLowerCase();
+
+      // Exact match (highest score)
+      if (lowerName === lowerQuery) {
+        score = 10;
+      } else if (lowerQualified === lowerQuery) {
+        score = 9;
       }
-      if (node.qualifiedName?.toLowerCase().includes(lowerQuery)) {
-        score = Math.max(score, 0.8);
+      // Prefix match (high score)
+      else if (lowerName?.startsWith(lowerQuery)) {
+        score = 8;
+      } else if (lowerQualified?.endsWith('.' + lowerQuery)) {
+        score = 7;
       }
+      // Contains match (medium score)
+      else if (lowerName?.includes(lowerQuery)) {
+        score = 5;
+      } else if (lowerQualified?.includes(lowerQuery)) {
+        score = 4;
+      }
+      // Partial word match (lower score)
+      else if (lowerName?.split(/[._-]/).some(part => part.startsWith(lowerQuery))) {
+        score = 3;
+      } else if (lowerQualified?.split(/[._-]/).some(part => part.includes(lowerQuery))) {
+        score = 2;
+      }
+
       if (score > 0) {
         results.push({ node, score });
       }
-      if (results.length >= limit) break;
     }
 
-    return results;
+    // Sort by score descending, then take limit
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, limit);
   }
 
   getAllFiles(): Array<{ path: string }> {

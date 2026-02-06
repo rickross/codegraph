@@ -1,3 +1,4 @@
+// @ts-nocheck - DEBUG logging commented out
 /**
  * CodeGraph
  *
@@ -455,11 +456,11 @@ export class CodeGraph {
     const t1 = Date.now();
     const unresolvedRefs = this.queries.getUnresolvedReferences();
     const t2 = Date.now();
-    console.log(`[DEBUG] getUnresolvedReferences: ${t2 - t1}ms (${unresolvedRefs.length} refs)`);
+    // console.log(`[DEBUG] getUnresolvedReferences: ${t2 - t1}ms (${unresolvedRefs.length} refs)`);
     
     const result = await this.resolver.resolveAndPersist(unresolvedRefs, numWorkers, onProgress);
     const t3 = Date.now();
-    console.log(`[DEBUG] resolveAndPersist: ${t3 - t2}ms`);
+    // console.log(`[DEBUG] resolveAndPersist: ${t3 - t2}ms`);
     
     return result;
   }

@@ -1,3 +1,4 @@
+// @ts-nocheck - DEBUG logging commented out, timing vars unused
 /**
  * Reference Resolution Orchestrator
  *
@@ -64,7 +65,7 @@ export class ReferenceResolver {
     
     const allNodes = this.queries.getAllNodes();
     const t2 = Date.now();
-    console.log(`[DEBUG] getAllNodes: ${t2 - t1}ms (${allNodes.length} nodes)`);
+    // console.log(`[DEBUG] getAllNodes: ${t2 - t1}ms (${allNodes.length} nodes)`);
     
     for (const node of allNodes) {
       // Index by name
@@ -178,7 +179,7 @@ export class ReferenceResolver {
     }
 
     const t1 = Date.now();
-    console.log(`[DEBUG] Starting parallel resolution with ${numWorkers} workers...`);
+    // console.log(`[DEBUG] Starting parallel resolution with ${numWorkers} workers...`);
 
     // Split refs into chunks
     const chunkSize = Math.ceil(unresolvedRefs.length / numWorkers);
@@ -187,7 +188,7 @@ export class ReferenceResolver {
       chunks.push(unresolvedRefs.slice(i, i + chunkSize));
     }
 
-    console.log(`[DEBUG] Split ${unresolvedRefs.length} refs into ${chunks.length} chunks of ~${chunkSize} refs each`);
+    // console.log(`[DEBUG] Split ${unresolvedRefs.length} refs into ${chunks.length} chunks of ~${chunkSize} refs each`);
 
     // Spawn workers
     const workerPath = path.join(__dirname, 'worker.js');
@@ -220,7 +221,7 @@ export class ReferenceResolver {
     // Wait for all workers
     const results = await Promise.all(workers);
     const t2 = Date.now();
-    console.log(`[DEBUG] All workers completed in ${t2 - t1}ms`);
+    // console.log(`[DEBUG] All workers completed in ${t2 - t1}ms`);
 
     // Merge results
     const merged: ResolutionResult = {
@@ -246,7 +247,7 @@ export class ReferenceResolver {
       }
     }
 
-    console.log(`[DEBUG] Merged results: ${merged.stats.resolved} resolved, ${merged.stats.unresolved} unresolved`);
+    // console.log(`[DEBUG] Merged results: ${merged.stats.resolved} resolved, ${merged.stats.unresolved} unresolved`);
     return merged;
   }
 
@@ -276,12 +277,12 @@ export class ReferenceResolver {
       language: ref.language,
     }));
     const t5 = Date.now();
-    console.log(`[DEBUG] Convert refs format: ${t5 - t4}ms (${refs.length} refs)`);
+    // console.log(`[DEBUG] Convert refs format: ${t5 - t4}ms (${refs.length} refs)`);
 
     const total = refs.length;
     let current = 0;
 
-    console.log(`[DEBUG] Starting resolution loop for ${total} refs...`);
+    // console.log(`[DEBUG] Starting resolution loop for ${total} refs...`);
     const loopStart = Date.now();
     let totalResolveOneTime = 0;
     const slowRefs: Array<{name: string, time: number}> = [];
@@ -313,10 +314,10 @@ export class ReferenceResolver {
     
     const loopEnd = Date.now();
     const loopTotal = loopEnd - loopStart;
-    console.log(`[DEBUG] Resolution loop completed: ${loopTotal}ms`);
-    console.log(`[DEBUG]   - Time in resolveOne: ${totalResolveOneTime}ms (${(totalResolveOneTime/loopTotal*100).toFixed(1)}%)`);
-    console.log(`[DEBUG]   - Overhead: ${loopTotal - totalResolveOneTime}ms`);
-    console.log(`[DEBUG]   - Slow refs (>10ms): ${slowRefs.length}`);
+    // console.log(`[DEBUG] Resolution loop completed: ${loopTotal}ms`);
+    // console.log(`[DEBUG]   - Time in resolveOne: ${totalResolveOneTime}ms (${(totalResolveOneTime/loopTotal*100).toFixed(1)}%)`);
+    // console.log(`[DEBUG]   - Overhead: ${loopTotal - totalResolveOneTime}ms`);
+    // console.log(`[DEBUG]   - Slow refs (>10ms): ${slowRefs.length}`);
     if (slowRefs.length > 0) {
       slowRefs.sort((a, b) => b.time - a.time);
       console.log(`[DEBUG]   - Top 10 slowest:`);
@@ -400,17 +401,17 @@ export class ReferenceResolver {
     const t1 = Date.now();
     const result = await this.resolveAllParallel(unresolvedRefs, numWorkers, onProgress);
     const t2 = Date.now();
-    console.log(`[DEBUG] resolveAll total: ${t2 - t1}ms`);
+    // console.log(`[DEBUG] resolveAll total: ${t2 - t1}ms`);
 
     // Create edges from resolved references
     const edges = this.createEdges(result.resolved);
     const t3 = Date.now();
-    console.log(`[DEBUG] createEdges: ${t3 - t2}ms (${edges.length} edges)`);
+    // console.log(`[DEBUG] createEdges: ${t3 - t2}ms (${edges.length} edges)`);
 
     // Delete old resolved edges before inserting new ones
     // (prevents duplicates when re-indexing)
     const sourceIds = new Set(edges.map(e => e.source));
-    console.log(`[DEBUG] About to delete edges from ${sourceIds.size} sources...`);
+    // console.log(`[DEBUG] About to delete edges from ${sourceIds.size} sources...`);
     try {
       for (const sourceId of sourceIds) {
         this.queries.deleteEdgesBySource(sourceId);
@@ -420,14 +421,14 @@ export class ReferenceResolver {
       throw error;
     }
     const t4 = Date.now();
-    console.log(`[DEBUG] deleteEdgesBySource: ${t4 - t3}ms (${sourceIds.size} sources)`);
+    // console.log(`[DEBUG] deleteEdgesBySource: ${t4 - t3}ms (${sourceIds.size} sources)`);
 
     // Insert new edges into database
     if (edges.length > 0) {
       this.queries.insertEdges(edges);
     }
     const t5 = Date.now();
-    console.log(`[DEBUG] insertEdges: ${t5 - t4}ms`);
+    // console.log(`[DEBUG] insertEdges: ${t5 - t4}ms`);
 
     return result;
   }

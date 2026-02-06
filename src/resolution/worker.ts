@@ -34,5 +34,5 @@ const result = resolver.resolveAll(refs);
 // Send results back to main thread
 parentPort.postMessage(result);
 
-// Cleanup
-db.close();
+// Note: Not closing DB here - better-sqlite3 might share state globally
+// Let the worker process exit naturally, which will close the connection

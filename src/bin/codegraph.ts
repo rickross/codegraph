@@ -244,6 +244,50 @@ program
   });
 
 /**
+ * codegraph uninit [path]
+ */
+program
+  .command('uninit [path]')
+  .description('Remove CodeGraph from a project (WARNING: deletes all data)')
+  .action(async (pathArg: string | undefined) => {
+    const projectPath = resolveProjectPath(pathArg);
+
+    try {
+      if (!CodeGraph.isInitialized(projectPath)) {
+        error(`CodeGraph not initialized in ${projectPath}`);
+        process.exit(1);
+      }
+
+      // Confirm deletion
+      console.log(chalk.yellow('\n⚠️  WARNING: This will permanently delete all CodeGraph data for this project.'));
+      console.log(chalk.dim(`   Location: ${projectPath}/.codegraph/\n`));
+      
+      // In non-interactive mode or if user wants to skip confirmation, add --force flag
+      const readline = require('readline').createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      readline.question('Are you sure you want to continue? (yes/no): ', async (answer: string) => {
+        readline.close();
+        
+        if (answer.toLowerCase() !== 'yes') {
+          info('Cancelled');
+          process.exit(0);
+        }
+
+        const cg = await CodeGraph.open(projectPath);
+        cg.uninitialize();
+        success('Removed CodeGraph from project');
+        info('The .codegraph/ directory has been deleted');
+      });
+    } catch (err) {
+      error(`Failed to uninitialize: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  });
+
+/**
  * codegraph index [path]
  */
 program

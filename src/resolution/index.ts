@@ -30,22 +30,9 @@ export * from './types';
  *
  * Orchestrates reference resolution using multiple strategies.
  */
-// Query interface that both QueryBuilder and InMemoryQueryBuilder implement
-interface IQueryProvider {
-  getAllNodes(): Node[];
-  getNodeById(id: string): Node | undefined;
-  getNodesByName(name: string): Node[];
-  getNodesByQualifiedName(qualifiedName: string): Node[];
-  getNodesByFile(filePath: string): Node[];
-  getNodesByKind(kind: string): Node[];
-  searchNodes(query: string, options?: { limit?: number }): Array<{ node: Node; score: number }>;
-  getAllFiles(): Array<{ path: string }>;
-  insertEdges(edges: Edge[]): void;
-}
-
 export class ReferenceResolver {
   private projectRoot: string;
-  private queries: IQueryProvider;
+  private queries: QueryBuilder;
   private context: ResolutionContext;
   private frameworks: FrameworkResolver[] = [];
   private nodeCache: Map<string, Node[]> = new Map();
@@ -53,7 +40,7 @@ export class ReferenceResolver {
   private nameCache: Map<string, Node[]> = new Map();
   private qualifiedNameCache: Map<string, Node[]> = new Map();
 
-  constructor(projectRoot: string, queries: IQueryProvider) {
+  constructor(projectRoot: string, queries: QueryBuilder) {
     this.projectRoot = projectRoot;
     this.queries = queries;
     this.context = this.createContext();
@@ -197,19 +184,17 @@ export class ReferenceResolver {
     }
 
 
-    // Pre-load all nodes once for all workers (avoid DB access in workers)
-    // Workers CAN read files directly from filesystem (same process, just different threads)
-    const allNodes = this.queries.getAllNodes();
-    
-    // Spawn workers with pre-loaded data
+    // Spawn workers with read-only DB access
     const workerPath = path.join(__dirname, 'worker.js');
+    const { getDatabasePath } = await import('../db');
+    const dbPath = getDatabasePath(this.projectRoot);
     
     const workers = chunks.map((chunk, idx) => {
       return new Promise<ResolutionResult>((resolve, reject) => {
         const worker = new Worker(workerPath, {
           workerData: {
             projectRoot: this.projectRoot,
-            allNodes,  // Pass nodes directly, no DB access needed
+            dbPath,  // Pass DB path for read-only access
             refs: chunk,
           },
         });

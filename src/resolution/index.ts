@@ -57,10 +57,13 @@ export class ReferenceResolver {
    */
   private warmCaches(): void {
     // Get all nodes in one query instead of N queries (one per file)
+    const t1 = Date.now();
     this.nameCache.clear();
     this.qualifiedNameCache.clear();
     
     const allNodes = this.queries.getAllNodes();
+    const t2 = Date.now();
+    console.log(`[DEBUG] getAllNodes: ${t2 - t1}ms (${allNodes.length} nodes)`);
     
     for (const node of allNodes) {
       // Index by name
@@ -175,6 +178,7 @@ export class ReferenceResolver {
     const byMethod: Record<string, number> = {};
 
     // Convert to our internal format
+    const t4 = Date.now();
     const refs: UnresolvedRef[] = unresolvedRefs.map((ref) => ({
       fromNodeId: ref.fromNodeId,
       referenceName: ref.referenceName,
@@ -184,6 +188,8 @@ export class ReferenceResolver {
       filePath: this.getFilePathFromNodeId(ref.fromNodeId),
       language: this.getLanguageFromNodeId(ref.fromNodeId),
     }));
+    const t5 = Date.now();
+    console.log(`[DEBUG] Convert refs format: ${t5 - t4}ms (${refs.length} refs)`);
 
     const total = refs.length;
     let current = 0;

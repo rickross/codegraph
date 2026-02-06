@@ -449,8 +449,16 @@ export class CodeGraph {
    */
   resolveReferences(onProgress?: (current: number, total: number) => void): ResolutionResult {
     // Get all unresolved references from the database
+    const t1 = Date.now();
     const unresolvedRefs = this.queries.getUnresolvedReferences();
-    return this.resolver.resolveAndPersist(unresolvedRefs, onProgress);
+    const t2 = Date.now();
+    console.log(`[DEBUG] getUnresolvedReferences: ${t2 - t1}ms (${unresolvedRefs.length} refs)`);
+    
+    const result = this.resolver.resolveAndPersist(unresolvedRefs, onProgress);
+    const t3 = Date.now();
+    console.log(`[DEBUG] resolveAndPersist: ${t3 - t2}ms`);
+    
+    return result;
   }
 
   /**

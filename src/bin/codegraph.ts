@@ -348,7 +348,7 @@ program
           
           // Resolve references
           console.log();
-          process.stdout.write(chalk.cyan('Preparing resolver... '));
+          console.log(chalk.cyan('Preparing resolver...'));
           
           const resolveStart = Date.now();
           let lastUpdate = Date.now();

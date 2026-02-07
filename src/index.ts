@@ -183,6 +183,9 @@ export interface IndexOptions {
 
   /** Abort signal for cancellation */
   signal?: AbortSignal;
+
+  /** Whether to use SCIP import when a configured SCIP index is available */
+  useScip?: boolean;
 }
 
 /**
@@ -478,6 +481,13 @@ export class CodeGraph {
       if (result.success) {
         this.queries.setProjectMetadataIfMissing('first_indexed_by_version', CodeGraph.RUNTIME_VERSION);
         this.queries.setProjectMetadataIfMissing('first_indexed_at', String(Date.now()));
+
+        if (this.shouldUseScip(options)) {
+          const scipPath = this.resolveConfiguredScipIndexPath();
+          if (scipPath) {
+            await this.importScipUnsafe(scipPath);
+          }
+        }
       }
 
       return result;
@@ -515,6 +525,13 @@ export class CodeGraph {
       this.queries.setProjectMetadata('last_synced_by_version', CodeGraph.RUNTIME_VERSION);
       this.queries.setProjectMetadata('last_synced_at', String(Date.now()));
 
+      if (this.shouldUseScip(options)) {
+        const scipPath = this.resolveConfiguredScipIndexPath();
+        if (scipPath) {
+          await this.importScipUnsafe(scipPath);
+        }
+      }
+
       return result;
     });
   }
@@ -527,18 +544,40 @@ export class CodeGraph {
    */
   async importScip(indexPath: string): Promise<ScipImportResult> {
     return this.indexMutex.withLock(async () => {
-      const importer = new ScipImporter(this.projectRoot, this.queries);
-      const result = importer.importFromFile(indexPath);
-
-      const importedAt = Date.now();
-      this.queries.setProjectMetadata('scip_last_imported_at', String(importedAt));
-      this.queries.setProjectMetadata('scip_last_imported_path', result.indexPath);
-      this.queries.setProjectMetadata('scip_last_imported_edges', String(result.importedEdges));
-      this.queries.setProjectMetadata('scip_last_documents', String(result.documentsParsed));
-      this.queries.setProjectMetadata('scip_last_occurrences', String(result.occurrencesScanned));
-
-      return result;
+      return this.importScipUnsafe(indexPath);
     });
+  }
+
+  private shouldUseScip(options: IndexOptions): boolean {
+    return options.useScip ?? this.config.enableScip;
+  }
+
+  private resolveConfiguredScipIndexPath(): string | null {
+    for (const candidate of this.config.scipIndexPaths) {
+      const trimmed = candidate.trim();
+      if (!trimmed) continue;
+      const fullPath = path.isAbsolute(trimmed)
+        ? trimmed
+        : path.resolve(this.projectRoot, trimmed);
+      if (fs.existsSync(fullPath)) {
+        return fullPath;
+      }
+    }
+    return null;
+  }
+
+  private async importScipUnsafe(indexPath: string): Promise<ScipImportResult> {
+    const importer = new ScipImporter(this.projectRoot, this.queries);
+    const result = importer.importFromFile(indexPath);
+
+    const importedAt = Date.now();
+    this.queries.setProjectMetadata('scip_last_imported_at', String(importedAt));
+    this.queries.setProjectMetadata('scip_last_imported_path', result.indexPath);
+    this.queries.setProjectMetadata('scip_last_imported_edges', String(result.importedEdges));
+    this.queries.setProjectMetadata('scip_last_documents', String(result.documentsParsed));
+    this.queries.setProjectMetadata('scip_last_occurrences', String(result.occurrencesScanned));
+
+    return result;
   }
 
   /**

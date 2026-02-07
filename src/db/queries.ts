@@ -161,6 +161,8 @@ export class QueryBuilder {
     getNodesByFile?: Database.Statement;
     getNodesByKind?: Database.Statement;
     insertEdge?: Database.Statement;
+    deleteEdgesByMetadataSource?: Database.Statement;
+    deleteEdgesByMetadataSourceLike?: Database.Statement;
     upsertFile?: Database.Statement;
     deleteEdgesBySource?: Database.Statement;
     deleteEdgesByTarget?: Database.Statement;
@@ -867,6 +869,31 @@ export class QueryBuilder {
         this.insertEdge(edge);
       }
     })();
+  }
+
+  /**
+   * Delete edges where metadata.source matches the provided value.
+   * Returns number of deleted rows.
+   */
+  deleteEdgesByMetadataSource(source: string): number {
+    try {
+      if (!this.stmts.deleteEdgesByMetadataSource) {
+        this.stmts.deleteEdgesByMetadataSource = this.db.prepare(
+          `DELETE FROM edges WHERE json_extract(metadata, '$.source') = ?`
+        );
+      }
+      const result = this.stmts.deleteEdgesByMetadataSource.run(source);
+      return Number(result.changes ?? 0);
+    } catch {
+      // Fallback for SQLite builds without JSON1 support.
+      if (!this.stmts.deleteEdgesByMetadataSourceLike) {
+        this.stmts.deleteEdgesByMetadataSourceLike = this.db.prepare(
+          `DELETE FROM edges WHERE metadata LIKE ?`
+        );
+      }
+      const result = this.stmts.deleteEdgesByMetadataSourceLike.run(`%"source":"${source}"%`);
+      return Number(result.changes ?? 0);
+    }
   }
 
   /**

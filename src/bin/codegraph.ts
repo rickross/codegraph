@@ -331,8 +331,9 @@ program
   .command('init [path]')
   .description('Initialize CodeGraph in a project directory')
   .option('-i, --index', 'Run initial indexing after initialization')
+  .option('--no-scip', 'Disable SCIP auto-import for this run')
   .option('--no-hooks', 'Skip git hooks installation')
-  .action(async (pathArg: string | undefined, options: { index?: boolean; hooks?: boolean }) => {
+  .action(async (pathArg: string | undefined, options: { index?: boolean; hooks?: boolean; scip?: boolean }) => {
     const projectPath = resolveProjectPath(pathArg);
 
     console.log(chalk.bold('\nInitializing CodeGraph...\n'));
@@ -370,6 +371,7 @@ program
         const startTime = Date.now();
         const result = await cg.indexAll({
           onProgress: printProgress,
+          useScip: options.scip,
         });
         const totalTime = Date.now() - startTime;
 
@@ -458,8 +460,9 @@ program
   .command('index [path]')
   .description('Index all files in the project')
   .option('-f, --force', 'Force full re-index even if already indexed')
+  .option('--no-scip', 'Disable SCIP auto-import for this run')
   .option('-q, --quiet', 'Suppress progress output')
-  .action(async (pathArg: string | undefined, options: { force?: boolean; quiet?: boolean }) => {
+  .action(async (pathArg: string | undefined, options: { force?: boolean; quiet?: boolean; scip?: boolean }) => {
     const projectPath = resolveProjectPath(pathArg);
 
     try {
@@ -486,6 +489,7 @@ program
       const startTime = Date.now();
       const result = await cg.indexAll({
         onProgress: options.quiet ? undefined : printProgress,
+        useScip: options.scip,
       });
       const totalTime = Date.now() - startTime;
 
@@ -542,8 +546,9 @@ program
 program
   .command('sync [path]')
   .description('Sync changes since last index')
+  .option('--no-scip', 'Disable SCIP auto-import for this run')
   .option('-q, --quiet', 'Suppress output (for git hooks)')
-  .action(async (pathArg: string | undefined, options: { quiet?: boolean }) => {
+  .action(async (pathArg: string | undefined, options: { quiet?: boolean; scip?: boolean }) => {
     const projectPath = resolveProjectPath(pathArg);
 
     try {
@@ -558,6 +563,7 @@ program
 
       const result = await cg.sync({
         onProgress: options.quiet ? undefined : printProgress,
+        useScip: options.scip,
       });
 
       // Clear progress line

@@ -429,7 +429,9 @@ export class MCPServer {
 
         // Open current root and index it
         const cg = await CodeGraph.open(this.projectPath);
-        await cg.indexAll();
+        await cg.indexAll({
+          useScip: toolArgs.useScip as boolean | undefined,
+        });
         
         // Get final stats AFTER resolution completes
         const stats = cg.getStats();
@@ -473,7 +475,9 @@ export class MCPServer {
         }
 
         // Sync the current root
-        await this.cg.sync();
+        await this.cg.sync({
+          useScip: toolArgs.useScip as boolean | undefined,
+        });
 
         const result = {
           content: [{

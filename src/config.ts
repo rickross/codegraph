@@ -41,10 +41,13 @@ export function validateConfig(config: unknown): config is CodeGraphConfig {
   if (typeof c.extractDocstrings !== 'boolean') return false;
   if (typeof c.trackCallSites !== 'boolean') return false;
   if (typeof c.enableEmbeddings !== 'boolean') return false;
+  if (typeof c.enableScip !== 'boolean') return false;
+  if (!Array.isArray(c.scipIndexPaths)) return false;
 
   // Validate include/exclude are string arrays
   if (!c.include.every((p) => typeof p === 'string')) return false;
   if (!c.exclude.every((p) => typeof p === 'string')) return false;
+  if (!c.scipIndexPaths.every((p) => typeof p === 'string')) return false;
 
   // Validate languages
   const validLanguages: Language[] = [
@@ -108,6 +111,8 @@ function mergeConfig(
     extractDocstrings: overrides.extractDocstrings ?? defaults.extractDocstrings,
     trackCallSites: overrides.trackCallSites ?? defaults.trackCallSites,
     enableEmbeddings: overrides.enableEmbeddings ?? defaults.enableEmbeddings,
+    enableScip: overrides.enableScip ?? defaults.enableScip,
+    scipIndexPaths: overrides.scipIndexPaths ?? defaults.scipIndexPaths,
     customPatterns: overrides.customPatterns ?? defaults.customPatterns,
   };
 }

@@ -251,6 +251,9 @@ export class ScipImporter {
       }
     }
 
+    // Replace previous SCIP-imported edges to keep repeated imports idempotent.
+    this.queries.deleteEdgesByMetadataSource('scip');
+
     if (importedEdges.length > 0) {
       this.queries.insertEdges(importedEdges);
     }
@@ -272,4 +275,3 @@ export class ScipImporter {
     return this.nodesByFile.get(filePath) ?? [];
   }
 }
-

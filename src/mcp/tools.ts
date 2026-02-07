@@ -314,7 +314,13 @@ export const tools: ToolDefinition[] = [
     description: 'Perform a full index of all files in the current root. The root must be initialized first.',
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        useScip: {
+          type: 'boolean',
+          description: 'Whether to auto-import SCIP semantic data during this run (default: true)',
+          default: true,
+        },
+      },
     },
   },
   {
@@ -322,7 +328,13 @@ export const tools: ToolDefinition[] = [
     description: 'Incrementally sync the current root index (only processes changed files since last index/sync). Much faster than full index.',
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        useScip: {
+          type: 'boolean',
+          description: 'Whether to auto-import SCIP semantic data during this run (default: true)',
+          default: true,
+        },
+      },
     },
   },
   {

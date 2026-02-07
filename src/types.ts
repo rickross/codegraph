@@ -462,6 +462,12 @@ export interface CodeGraphConfig {
   /** Whether to compute embeddings for semantic search */
   enableEmbeddings: boolean;
 
+  /** Whether to auto-import SCIP semantic data during index/sync when available */
+  enableScip: boolean;
+
+  /** Candidate SCIP JSON paths (checked in order) */
+  scipIndexPaths: string[];
+
   /** Custom symbol patterns to extract */
   customPatterns?: {
     /** Name for this pattern group */
@@ -646,6 +652,13 @@ export const DEFAULT_CONFIG: CodeGraphConfig = {
   extractDocstrings: true,
   trackCallSites: true,
   enableEmbeddings: false,
+  enableScip: true,
+  scipIndexPaths: [
+    '.codegraph/index.scip.json',
+    '.scip/index.scip.json',
+    'index.scip.json',
+    'scip/index.scip.json',
+  ],
 };
 
 // =============================================================================

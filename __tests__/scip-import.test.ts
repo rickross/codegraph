@@ -82,5 +82,84 @@ describe('SCIP import', () => {
     cg.destroy();
     cleanupTempDir(tempDir);
   });
-});
 
+  it('auto-imports SCIP from .codegraph/index.scip.json by default during indexAll', async () => {
+    const tempDir = createTempDir();
+    const srcDir = path.join(tempDir, 'src');
+    const codegraphDir = path.join(tempDir, '.codegraph');
+    fs.mkdirSync(srcDir, { recursive: true });
+
+    const source = [
+      'export function target() {',
+      '  return 1;',
+      '}',
+      '',
+      'export function caller() {',
+      '  return target();',
+      '}',
+      '',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'example.ts'), source, 'utf-8');
+
+    const scipPayload = {
+      documents: [
+        {
+          relative_path: 'src/example.ts',
+          occurrences: [
+            { symbol: 'scip-typescript npm test 0.0.0 src/example.ts/target().', range: [0, 16, 22], symbol_roles: 1 },
+            { symbol: 'scip-typescript npm test 0.0.0 src/example.ts/caller().', range: [4, 16, 22], symbol_roles: 1 },
+            { symbol: 'scip-typescript npm test 0.0.0 src/example.ts/target().', range: [5, 9, 15], symbol_roles: 0 },
+          ],
+        },
+      ],
+    };
+
+    const cg = await CodeGraph.init(tempDir);
+    fs.mkdirSync(codegraphDir, { recursive: true });
+    fs.writeFileSync(path.join(codegraphDir, 'index.scip.json'), JSON.stringify(scipPayload), 'utf-8');
+    await cg.indexAll();
+
+    const callerNode = cg.searchNodes('caller', { kinds: ['function'], limit: 1 })[0]?.node;
+    const targetNode = cg.searchNodes('target', { kinds: ['function'], limit: 1 })[0]?.node;
+    expect(callerNode).toBeDefined();
+    expect(targetNode).toBeDefined();
+
+    const scipEdges = cg
+      .getOutgoingEdges(callerNode!.id)
+      .filter((edge) => edge.kind === 'references' && edge.metadata?.source === 'scip');
+    expect(scipEdges.some((edge) => edge.target === targetNode!.id)).toBe(true);
+
+    const stats = cg.getStats();
+    expect(stats.scipProvenance?.lastImportedPath).toContain('.codegraph/index.scip.json');
+
+    cg.destroy();
+    cleanupTempDir(tempDir);
+  });
+
+  it('supports disabling default SCIP auto-import during indexAll', async () => {
+    const tempDir = createTempDir();
+    const srcDir = path.join(tempDir, 'src');
+    const codegraphDir = path.join(tempDir, '.codegraph');
+    fs.mkdirSync(srcDir, { recursive: true });
+    fs.writeFileSync(path.join(srcDir, 'example.ts'), 'export function target() { return 1; }', 'utf-8');
+    const scipPayload = {
+      documents: [
+        {
+          relative_path: 'src/example.ts',
+          occurrences: [{ symbol: 's', range: [0, 16, 22], symbol_roles: 1 }],
+        },
+      ],
+    };
+
+    const cg = await CodeGraph.init(tempDir);
+    fs.mkdirSync(codegraphDir, { recursive: true });
+    fs.writeFileSync(path.join(codegraphDir, 'index.scip.json'), JSON.stringify(scipPayload), 'utf-8');
+
+    await cg.indexAll({ useScip: false });
+    const stats = cg.getStats();
+    expect(stats.scipProvenance?.lastImportedPath).toBeUndefined();
+
+    cg.destroy();
+    cleanupTempDir(tempDir);
+  });
+});

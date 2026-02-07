@@ -85,7 +85,7 @@ export class GraphTraverser {
       const adjacentEdges = this.getAdjacentEdges(node.id, opts.direction, opts.edgeKinds);
 
       for (const adjEdge of adjacentEdges) {
-        const nextNodeId = opts.direction === 'incoming' ? adjEdge.source : adjEdge.target;
+        const nextNodeId = this.getNextNodeId(node.id, adjEdge, opts.direction);
 
         if (visited.has(nextNodeId)) {
           continue;
@@ -169,7 +169,7 @@ export class GraphTraverser {
     const adjacentEdges = this.getAdjacentEdges(node.id, opts.direction, opts.edgeKinds);
 
     for (const edge of adjacentEdges) {
-      const nextNodeId = opts.direction === 'incoming' ? edge.source : edge.target;
+      const nextNodeId = this.getNextNodeId(node.id, edge, opts.direction);
 
       if (visited.has(nextNodeId)) {
         continue;
@@ -214,6 +214,24 @@ export class GraphTraverser {
       const incoming = this.queries.getIncomingEdges(nodeId, kinds);
       return [...outgoing, ...incoming];
     }
+  }
+
+  /**
+   * Resolve the neighbor node ID for an edge and traversal direction.
+   */
+  private getNextNodeId(
+    currentNodeId: string,
+    edge: Edge,
+    direction: 'outgoing' | 'incoming' | 'both'
+  ): string {
+    if (direction === 'incoming') {
+      return edge.source;
+    }
+    if (direction === 'outgoing') {
+      return edge.target;
+    }
+    // For "both", pick the opposite endpoint of the current node.
+    return edge.source === currentNodeId ? edge.target : edge.source;
   }
 
   /**
@@ -348,16 +366,17 @@ export class GraphTraverser {
 
     const nodes = new Map<string, Node>();
     const edges: Edge[] = [];
-    const visited = new Set<string>();
+    const ancestorVisited = new Set<string>();
+    const descendantVisited = new Set<string>();
 
     // Add focal node
     nodes.set(focalNode.id, focalNode);
 
     // Get ancestors (what this extends/implements)
-    this.getTypeAncestors(nodeId, nodes, edges, visited);
+    this.getTypeAncestors(nodeId, nodes, edges, ancestorVisited);
 
     // Get descendants (what extends/implements this)
-    this.getTypeDescendants(nodeId, nodes, edges, visited);
+    this.getTypeDescendants(nodeId, nodes, edges, descendantVisited);
 
     return {
       nodes,

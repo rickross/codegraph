@@ -50,10 +50,20 @@ export function validateConfig(config: unknown): config is CodeGraphConfig {
   const validLanguages: Language[] = [
     'typescript',
     'javascript',
+    'tsx',
+    'jsx',
     'python',
     'go',
     'rust',
     'java',
+    'c',
+    'cpp',
+    'csharp',
+    'php',
+    'ruby',
+    'swift',
+    'kotlin',
+    'liquid',
     'unknown',
   ];
   if (!c.languages.every((l) => validLanguages.includes(l as Language))) return false;

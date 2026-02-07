@@ -177,6 +177,26 @@ function formatDuration(ms: number): string {
 }
 
 /**
+ * Format a unix timestamp (ms) for display
+ */
+function formatTimestamp(ts?: number): string {
+  if (!ts || Number.isNaN(ts)) {
+    return 'unknown';
+  }
+  return new Date(ts).toISOString();
+}
+
+/**
+ * Format provenance version label for human-readable status output.
+ */
+function formatProvenanceVersion(version?: string): string {
+  if (!version || version.trim().length === 0 || version.trim().toLowerCase() === 'unknown') {
+    return 'version unknown';
+  }
+  return version;
+}
+
+/**
  * Display index statistics block
  */
 function displayIndexStats(stats: any): void {
@@ -185,6 +205,18 @@ function displayIndexStats(stats: any): void {
   console.log(`  Nodes:     ${formatNumber(stats.nodeCount)}`);
   console.log(`  Edges:     ${formatNumber(stats.edgeCount)}`);
   console.log(`  DB Size:   ${(stats.dbSizeBytes / 1024 / 1024).toFixed(2)} MB`);
+
+  const provenance = stats.indexProvenance;
+    if (provenance && (provenance.firstIndexedByVersion || provenance.lastSyncedByVersion)) {
+      console.log();
+      console.log(chalk.bold('Index Provenance:'));
+      if (provenance.firstIndexedByVersion || provenance.firstIndexedAt) {
+        console.log(`  First Indexed: ${formatProvenanceVersion(provenance.firstIndexedByVersion)} (${formatTimestamp(provenance.firstIndexedAt)})`);
+      }
+      if (provenance.lastSyncedByVersion || provenance.lastSyncedAt) {
+        console.log(`  Last Synced:   ${formatProvenanceVersion(provenance.lastSyncedByVersion)} (${formatTimestamp(provenance.lastSyncedAt)})`);
+      }
+    }
 }
 
 /**
@@ -581,6 +613,19 @@ program
       console.log(`  Edges:     ${formatNumber(stats.edgeCount)}`);
       console.log(`  DB Size:   ${(stats.dbSizeBytes / 1024 / 1024).toFixed(2)} MB`);
       console.log();
+
+      // Index provenance
+      const provenance = stats.indexProvenance;
+      if (provenance && (provenance.firstIndexedByVersion || provenance.lastSyncedByVersion)) {
+        console.log(chalk.bold('Index Provenance:'));
+        if (provenance.firstIndexedByVersion || provenance.firstIndexedAt) {
+          console.log(`  First Indexed: ${formatProvenanceVersion(provenance.firstIndexedByVersion)} (${formatTimestamp(provenance.firstIndexedAt)})`);
+        }
+        if (provenance.lastSyncedByVersion || provenance.lastSyncedAt) {
+          console.log(`  Last Synced:   ${formatProvenanceVersion(provenance.lastSyncedByVersion)} (${formatTimestamp(provenance.lastSyncedAt)})`);
+        }
+        console.log();
+      }
 
       // Node breakdown
       console.log(chalk.bold('Nodes by Kind:'));

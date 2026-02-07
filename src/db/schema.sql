@@ -1,5 +1,5 @@
 -- CodeGraph SQLite Schema
--- Version 1
+-- Version 2
 
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_versions (
@@ -63,6 +63,13 @@ CREATE TABLE IF NOT EXISTS files (
     indexed_at INTEGER NOT NULL,
     node_count INTEGER DEFAULT 0,
     errors TEXT -- JSON array
+);
+
+-- Project metadata: persistent key/value provenance for this index
+CREATE TABLE IF NOT EXISTS project_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
 );
 
 -- Unresolved References: References that need resolution after full indexing
@@ -129,6 +136,9 @@ CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target, kind);
 -- File indexes
 CREATE INDEX IF NOT EXISTS idx_files_language ON files(language);
 CREATE INDEX IF NOT EXISTS idx_files_modified_at ON files(modified_at);
+
+-- Metadata indexes
+CREATE INDEX IF NOT EXISTS idx_project_metadata_updated_at ON project_metadata(updated_at);
 
 -- Unresolved refs indexes
 CREATE INDEX IF NOT EXISTS idx_unresolved_from_node ON unresolved_refs(from_node_id);

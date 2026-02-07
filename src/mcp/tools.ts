@@ -326,7 +326,7 @@ export const tools: ToolDefinition[] = [
 export class ToolHandler {
   private lastRootBanner: string | null = null;
 
-  constructor(private cg: CodeGraph) {}
+  constructor(private cg: CodeGraph, private version: string = 'unknown') {}
 
   /**
    * Execute a tool by name
@@ -1189,14 +1189,26 @@ export class ToolHandler {
     const lines: string[] = [
       '## CodeGraph Status',
       '',
+      `**Version:** ${this.version}`,
       `**Root:** ${this.cg.getProjectRoot()}`,
       `**Files indexed:** ${stats.fileCount}`,
       `**Total nodes:** ${stats.nodeCount}`,
       `**Total edges:** ${stats.edgeCount}`,
       `**Database size:** ${(stats.dbSizeBytes / 1024 / 1024).toFixed(2)} MB`,
-      '',
-      '### Nodes by Kind:',
     ];
+
+    const provenance = stats.indexProvenance;
+    if (provenance && (provenance.firstIndexedByVersion || provenance.lastSyncedByVersion)) {
+      lines.push('', '### Index Provenance:');
+      if (provenance.firstIndexedByVersion || provenance.firstIndexedAt) {
+        lines.push(`- First indexed: ${this.formatProvenanceVersion(provenance.firstIndexedByVersion)} (${this.formatTimestamp(provenance.firstIndexedAt)})`);
+      }
+      if (provenance.lastSyncedByVersion || provenance.lastSyncedAt) {
+        lines.push(`- Last synced: ${this.formatProvenanceVersion(provenance.lastSyncedByVersion)} (${this.formatTimestamp(provenance.lastSyncedAt)})`);
+      }
+    }
+
+    lines.push('', '### Nodes by Kind:');
 
     for (const [kind, count] of Object.entries(stats.nodesByKind)) {
       if ((count as number) > 0) {
@@ -1244,6 +1256,20 @@ export class ToolHandler {
     }
 
     return lines.join('\n');
+  }
+
+  private formatTimestamp(ts?: number): string {
+    if (!ts || Number.isNaN(ts)) {
+      return 'unknown';
+    }
+    return new Date(ts).toISOString();
+  }
+
+  private formatProvenanceVersion(version?: string): string {
+    if (!version || version.trim().length === 0 || version.trim().toLowerCase() === 'unknown') {
+      return 'version unknown';
+    }
+    return version;
   }
 
   private formatImpact(symbol: string, impact: Subgraph): string {

@@ -79,7 +79,7 @@ export function Session() {
 
     await cg.indexAll();
     await cg.resolveReferences();
-    tools = new ToolHandler(cg);
+    tools = new ToolHandler(cg, 'test-version');
   });
 
   afterEach(() => {
@@ -250,5 +250,13 @@ export function Session() {
     const text = result.content[0]?.text ?? '';
 
     expect(text).toContain('Session');
+  });
+
+  it('includes version in status output', async () => {
+    const result = await tools.execute('status', {});
+    const text = result.content[0]?.text ?? '';
+
+    expect(text).toContain('## CodeGraph Status');
+    expect(text).toContain('**Version:** test-version');
   });
 });

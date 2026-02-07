@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
 /**
  * Current schema version
  */
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 /**
  * Migration definition
@@ -27,17 +27,42 @@ interface Migration {
  * Future migrations go here.
  */
 const migrations: Migration[] = [
-  // Example migration for version 2 (when needed):
-  // {
-  //   version: 2,
-  //   description: 'Add support for module resolution',
-  //   up: (db) => {
-  //     db.exec(`
-  //       ALTER TABLE nodes ADD COLUMN module_path TEXT;
-  //       CREATE INDEX idx_nodes_module_path ON nodes(module_path);
-  //     `);
-  //   },
-  // },
+  {
+    version: 2,
+    description: 'Add project metadata table for index provenance',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS project_metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_metadata_updated_at ON project_metadata(updated_at);
+      `);
+
+      // Best-effort backfill for existing indexes.
+      // We cannot infer historical version, so mark as unknown when files exist.
+      const hasFiles = (
+        db.prepare('SELECT COUNT(*) as count FROM files').get() as { count: number }
+      ).count > 0;
+      if (hasFiles) {
+        const now = Date.now();
+        const minIndexedAt = (
+          db.prepare('SELECT MIN(indexed_at) as value FROM files').get() as { value: number | null }
+        ).value;
+        if (minIndexedAt !== null) {
+          db.prepare(`
+            INSERT OR IGNORE INTO project_metadata (key, value, updated_at)
+            VALUES ('first_indexed_at', ?, ?)
+          `).run(String(minIndexedAt), now);
+        }
+        db.prepare(`
+          INSERT OR IGNORE INTO project_metadata (key, value, updated_at)
+          VALUES ('first_indexed_by_version', 'unknown', ?)
+        `).run(now);
+      }
+    },
+  },
 ];
 
 /**

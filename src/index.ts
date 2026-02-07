@@ -7,6 +7,8 @@
 
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
+import { execSync } from 'child_process';
 import {
   CodeGraphConfig,
   Node,
@@ -77,6 +79,71 @@ export {
 } from './errors';
 export { Mutex, processInBatches, debounce, throttle, MemoryMonitor } from './utils';
 export { MCPServer } from './mcp';
+
+/**
+ * Build runtime version string.
+ *
+ * Priority:
+ * 1. CODEGRAPH_BUILD_VERSION (full override)
+ * 2. package.json version + optional CODEGRAPH_VERSION_SUFFIX
+ * 3. package.json version + git metadata (+g<sha>[.dirty]) when available
+ */
+function getRuntimeVersion(): string {
+  const buildVersion = process.env.CODEGRAPH_BUILD_VERSION?.trim();
+  if (buildVersion) return buildVersion;
+
+  const packagePath = path.join(__dirname, '..', 'package.json');
+  let baseVersion = 'unknown';
+  try {
+    const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf-8')) as { version?: string };
+    if (pkg.version) {
+      baseVersion = pkg.version;
+    }
+  } catch {
+    // keep unknown fallback
+  }
+
+  const suffix = process.env.CODEGRAPH_VERSION_SUFFIX?.trim();
+  if (suffix) {
+    const normalized = suffix.startsWith('+') || suffix.startsWith('-') ? suffix : `+${suffix}`;
+    return `${baseVersion}${normalized}`;
+  }
+
+  const gitMetadata = getGitMetadata(path.dirname(packagePath));
+  if (!gitMetadata || baseVersion === 'unknown') {
+    return baseVersion;
+  }
+  return `${baseVersion}+${gitMetadata}`;
+}
+
+/**
+ * Return git build metadata ("g<sha>" or "g<sha>.dirty") when running in a git checkout.
+ */
+function getGitMetadata(repoRoot: string): string | null {
+  if (!fs.existsSync(path.join(repoRoot, '.git'))) {
+    return null;
+  }
+
+  try {
+    const shortSha = execSync('git rev-parse --short HEAD', {
+      cwd: repoRoot,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8',
+    }).trim();
+
+    if (!shortSha) return null;
+
+    const dirty = execSync('git status --porcelain', {
+      cwd: repoRoot,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8',
+    }).trim().length > 0;
+
+    return dirty ? `g${shortSha}.dirty` : `g${shortSha}`;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Options for initializing a new CodeGraph project
@@ -167,6 +234,11 @@ export class CodeGraph {
     // Git hooks manager
     this.gitHooksManager = createGitHooksManager(projectRoot);
   }
+
+  /**
+   * Runtime version used for index provenance metadata.
+   */
+  private static readonly RUNTIME_VERSION = getRuntimeVersion();
 
   // ===========================================================================
   // Lifecycle Methods
@@ -399,6 +471,11 @@ export class CodeGraph {
         }
       }
 
+      if (result.success) {
+        this.queries.setProjectMetadataIfMissing('first_indexed_by_version', CodeGraph.RUNTIME_VERSION);
+        this.queries.setProjectMetadataIfMissing('first_indexed_at', String(Date.now()));
+      }
+
       return result;
     });
   }
@@ -427,7 +504,12 @@ export class CodeGraph {
       // Cache optimization makes full resolution fast even with 20K+ refs
       if (result.filesAdded > 0 || result.filesModified > 0) {
         await this.resolveReferences();
+        this.queries.setProjectMetadataIfMissing('first_indexed_by_version', CodeGraph.RUNTIME_VERSION);
+        this.queries.setProjectMetadataIfMissing('first_indexed_at', String(Date.now()));
       }
+
+      this.queries.setProjectMetadata('last_synced_by_version', CodeGraph.RUNTIME_VERSION);
+      this.queries.setProjectMetadata('last_synced_at', String(Date.now()));
 
       return result;
     });

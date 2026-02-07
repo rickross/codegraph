@@ -693,6 +693,18 @@ export interface GraphStats {
 
   /** Last update timestamp */
   lastUpdated: number;
+
+  /** Index provenance metadata (if available) */
+  indexProvenance?: {
+    /** Version that first created/populated this index */
+    firstIndexedByVersion?: string;
+    /** Timestamp when index was first created/populated */
+    firstIndexedAt?: number;
+    /** Version that most recently ran sync */
+    lastSyncedByVersion?: string;
+    /** Timestamp when sync most recently ran */
+    lastSyncedAt?: number;
+  };
 }
 
 // =============================================================================

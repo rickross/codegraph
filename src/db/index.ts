@@ -50,6 +50,12 @@ export class DatabaseConnection {
     const schema = fs.readFileSync(schemaPath, 'utf-8');
     db.exec(schema);
 
+    // Ensure latest schema version is applied for newly initialized databases too.
+    const currentVersion = getCurrentVersion(db);
+    if (currentVersion < CURRENT_SCHEMA_VERSION) {
+      runMigrations(db, currentVersion);
+    }
+
     return new DatabaseConnection(db, dbPath);
   }
 

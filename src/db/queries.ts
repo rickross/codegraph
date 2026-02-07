@@ -77,6 +77,12 @@ interface UnresolvedRefRow {
   candidates: string | null;
 }
 
+interface ProjectMetadataRow {
+  key: string;
+  value: string;
+  updated_at: number;
+}
+
 /**
  * Convert database row to Node object
  */
@@ -168,6 +174,8 @@ export class QueryBuilder {
     insertUnresolved?: Database.Statement;
     deleteUnresolvedByNode?: Database.Statement;
     getUnresolvedByName?: Database.Statement;
+    upsertProjectMetadata?: Database.Statement;
+    getProjectMetadata?: Database.Statement;
   } = {};
 
   constructor(db: Database.Database) {
@@ -1117,6 +1125,53 @@ export class QueryBuilder {
   }
 
   /**
+   * Set a project metadata key/value pair.
+   */
+  setProjectMetadata(key: string, value: string): void {
+    if (!this.stmts.upsertProjectMetadata) {
+      this.stmts.upsertProjectMetadata = this.db.prepare(`
+        INSERT INTO project_metadata (key, value, updated_at)
+        VALUES (@key, @value, @updatedAt)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+      `);
+    }
+    this.stmts.upsertProjectMetadata.run({
+      key,
+      value,
+      updatedAt: Date.now(),
+    });
+  }
+
+  /**
+   * Set a project metadata key/value pair only if the key doesn't exist yet.
+   */
+  setProjectMetadataIfMissing(key: string, value: string): void {
+    this.db
+      .prepare(`
+        INSERT OR IGNORE INTO project_metadata (key, value, updated_at)
+        VALUES (?, ?, ?)
+      `)
+      .run(key, value, Date.now());
+  }
+
+  /**
+   * Get a project metadata value by key.
+   */
+  getProjectMetadata(key: string): string | undefined {
+    if (!this.stmts.getProjectMetadata) {
+      this.stmts.getProjectMetadata = this.db.prepare(`
+        SELECT key, value, updated_at
+        FROM project_metadata
+        WHERE key = ?
+      `);
+    }
+    const row = this.stmts.getProjectMetadata.get(key) as ProjectMetadataRow | undefined;
+    return row?.value;
+  }
+
+  /**
    * Delete resolved references by their IDs
    */
   deleteResolvedReferences(fromNodeIds: string[]): void {
@@ -1169,6 +1224,11 @@ export class QueryBuilder {
       filesByLanguage[row.language as Language] = row.count;
     }
 
+    const firstIndexedByVersion = this.getProjectMetadata('first_indexed_by_version');
+    const firstIndexedAtRaw = this.getProjectMetadata('first_indexed_at');
+    const lastSyncedByVersion = this.getProjectMetadata('last_synced_by_version');
+    const lastSyncedAtRaw = this.getProjectMetadata('last_synced_at');
+
     return {
       nodeCount,
       edgeCount,
@@ -1178,6 +1238,12 @@ export class QueryBuilder {
       filesByLanguage,
       dbSizeBytes: 0, // Set by caller using DatabaseConnection.getSize()
       lastUpdated: Date.now(),
+      indexProvenance: {
+        firstIndexedByVersion: firstIndexedByVersion || undefined,
+        firstIndexedAt: firstIndexedAtRaw ? Number(firstIndexedAtRaw) : undefined,
+        lastSyncedByVersion: lastSyncedByVersion || undefined,
+        lastSyncedAt: lastSyncedAtRaw ? Number(lastSyncedAtRaw) : undefined,
+      },
     };
   }
 
@@ -1192,6 +1258,7 @@ export class QueryBuilder {
       this.db.exec('DELETE FROM edges');
       this.db.exec('DELETE FROM nodes');
       this.db.exec('DELETE FROM files');
+      this.db.exec('DELETE FROM project_metadata');
     })();
   }
 }

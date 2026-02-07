@@ -1,450 +1,361 @@
-# An AI Guide to Using CodeGraph
+# AI Guide: Using CodeGraph Effectively
 
-> **For AI Assistants:** This guide helps you leverage CodeGraph effectively to understand and navigate codebases faster than traditional file-by-file exploration.
+> This guide is for AI assistants and human operators who want fast, high-quality code understanding with CodeGraph MCP tools.
+> Canonical MCP tool names are short (`search`, `context`, `node`, etc.); legacy `codegraph_*` aliases still work.
 
-## 🎯 Core Philosophy
+## Purpose
 
-**CodeGraph is a semantic index, not just a file tree.** It understands:
-- What functions/classes exist and where they are
-- What calls what (call graph)
-- What imports what (dependency graph)
-- What extends/implements what (inheritance)
+CodeGraph is best when you use it as a **semantic graph interface** for code structure and relationships, not as a plain text search replacement.
 
-**Think of it like having X-ray vision into code structure.**
+It helps you answer:
+- Where is behavior implemented?
+- What calls this symbol?
+- What does this symbol call?
+- What is the impact radius of changing this?
+- What is the shortest path from user input to effect?
 
----
+## Core Principles
 
-## 🚀 Quick Start Workflow
+1. Start graph-first, not file-first.
+2. Scope queries early (path/language/kind) to reduce noise.
+3. Disambiguate symbols explicitly (`kind`, `pathHint`) when names collide.
+4. Retrieve code only when needed (`includeCode=true` late, not early).
+5. Prefer iterative narrowing over broad exploratory dumps.
 
-### 1. **Set Your Project Root**
-```
-codegraph_set_root("/path/to/project")
-```
-This switches CodeGraph to work with a specific project.
-
-### 2. **Check Status**
-```
-codegraph_status()
-```
-See if the project is indexed. Look for:
-- Number of files/nodes/edges
-- Whether index is up to date
-
-### 3. **Search for Entry Points**
-```
-codegraph_search("main")
-codegraph_search("server")
-codegraph_search("handler")
-```
-Find where the action starts.
+## Operating Modes
 
-### 4. **Explore from There**
-Once you find a key function:
-```
-codegraph_node("functionName", includeCode=true)  // Get details + source
-codegraph_callers("functionName")                  // What calls this?
-codegraph_callees("functionName")                  // What does this call?
-```
-
----
-
-## 🎓 The Five Essential Patterns
+CodeGraph now works best with two explicit approaches:
 
-### Pattern 1: **"Where does X happen?"**
-**Goal:** Find where authentication/logging/processing happens
+### Discovery mode (gain a foothold)
+- Use broad intent queries first.
+- Allow file nodes and mixed kinds.
+- Do not over-constrain too early.
 
-**Approach:**
+```text
+search(query="architecture overview entry points", limit=15)
+context(task="Give me a high-level module map and likely entry points", maxNodes=30, includeCode=false)
 ```
-1. codegraph_search("authenticate")
-2. Look at results, pick most relevant
-3. codegraph_node("authenticate", includeCode=true)
-4. codegraph_callers("authenticate") → see where it's used
-```
-
-**Why this works:** CodeGraph's FTS5 search finds symbols by name, then the graph shows you connections.
 
----
+### Focused tracing mode (answer a specific question)
+- Constrain by `kind`, `pathHint`, and optionally `language`.
+- Prefer `includeFiles=false`.
+- Use callers/callees/impact to produce evidence-backed flow.
 
-### Pattern 2: **"What does this function affect?"**
-**Goal:** Understand impact of changing a function
-
-**Approach:**
+```text
+search(query="submitPrompt", kind="method", pathHint="sdk/js/src/v2/gen", limit=10)
+context(task="Trace TUI submit to server processing", kind="function", pathHint="packages/opencode/src", includeFiles=false, includeCode=false)
 ```
-1. codegraph_impact("functionName", depth=2)
-```
-
-**What you get:**
-- Direct callers (depth 1)
-- Indirect callers (depth 2)
-- Everything that could break if you change this
 
-**Pro tip:** Start with depth=2. Go deeper only if needed (gets noisy).
+If unsure, start in discovery mode for 1-2 calls, then switch to focused tracing.
 
----
+## Quick Start (MCP, Focused Trace)
 
-### Pattern 3: **"How do I implement X?"**
-**Goal:** Gather context for building a new feature
+### 1) Set project root
 
-**Approach:**
+```text
+set_root(path="/absolute/path/to/project")
 ```
-1. codegraph_context("implement user authentication", maxNodes=20)
-```
 
-**What you get:**
-- Relevant entry points
-- Related symbols
-- Code snippets
+### 2) Verify index health
 
-**Then refine:**
-```
-2. codegraph_search("User")
-3. codegraph_node("User", includeCode=true)
-4. codegraph_callees("User") → see what User interacts with
+```text
+status()
 ```
 
-**Why two steps?** `context` gives you the overview, then use `search`/`node`/`callers`/`callees` for precision.
+If indexing is stale:
+- Run `codegraph sync` for incremental updates
+- Run `codegraph index` for full rebuild
 
----
+### 3) Begin with scoped discovery
 
-### Pattern 4: **"What's the call chain from A to B?"**
-**Goal:** Trace how data flows through the system
-
-**Approach:**
-```
-1. codegraph_node("entryFunction", includeCode=true)
-2. codegraph_callees("entryFunction")
-   → Note: calls processData
-3. codegraph_node("processData", includeCode=true)
-4. codegraph_callees("processData")
-   → Note: calls validateInput, saveToDb
-5. Continue following the chain
+```text
+search(query="session", kind="function", language="typescript", pathHint="cli/cmd/tui", includeFiles=false, limit=10)
 ```
 
-**Pro tip:** Draw a mental (or actual) diagram as you go. CodeGraph gives you the graph, you interpret the flow.
+### 4) Resolve symbol and trace relationships
 
----
+```text
+node(symbol="Session", kind="function", pathHint="cli/cmd/tui", includeCode=false)
+callers(symbol="Session", kind="function", pathHint="cli/cmd/tui", limit=20)
+callees(symbol="Session", kind="function", pathHint="cli/cmd/tui", limit=20)
+```
 
-### Pattern 5: **"What are the main modules?"**
-**Goal:** Understand high-level architecture
+### 5) Build focused task context
 
-**Approach:**
-```
-1. codegraph_search("index")  // Find index.ts, index.js files (often entry points)
-2. codegraph_search("router")  // Find routing logic
-3. codegraph_search("controller")  // Find business logic
-4. For each main file:
-   codegraph_node("MainClass", includeCode=false)  // Just metadata
-   codegraph_callees("MainClass")  // See dependencies
+```text
+context(
+  task="Trace TUI input to server handling and streaming updates",
+  maxNodes=30,
+  kind="function",
+  language="typescript",
+  pathHint="packages/opencode/src",
+  includeFiles=false,
+  includeCode=false
+)
 ```
 
-**Why this works:** Entry points and routers define the module structure. Following their callees shows you the layers.
+## Tool Reference
 
----
+| Tool | Best use | Key params | Notes |
+|---|---|---|---|
+| `search` | Candidate discovery | `query`, `kind`, `language`, `pathHint`, `includeFiles`, `limit` | Fastest first pass |
+| `node` | Symbol details | `symbol`, `kind`, `pathHint`, `includeCode` | Use `includeCode=true` only for finalists |
+| `callers` | Upstream impact/use sites | `symbol`, `kind`, `pathHint`, `limit` | Great for entrypoints and usage |
+| `callees` | Downstream flow | `symbol`, `kind`, `pathHint`, `limit` | Great for data/control flow tracing |
+| `impact` | Change blast radius | `symbol`, `kind`, `pathHint`, `depth` | Start with `depth=2` |
+| `context` | Task-level grounding | `task`, `maxNodes`, `kind`, `language`, `pathHint`, `includeFiles`, `includeCode` | Use scoped context to avoid noise |
+| `status` | Index sanity check | none | Always check before deep analysis |
 
-## 🎯 Tool Reference Card
+## Disambiguation-First Workflow
 
-| Tool | Use When | Returns |
-|------|----------|---------|
-| `codegraph_search` | Find symbols by name | List of matches |
-| `codegraph_node` | Get details about a specific symbol | Code + metadata |
-| `codegraph_callers` | "What calls this?" | Functions that depend on this |
-| `codegraph_callees` | "What does this call?" | Functions this depends on |
-| `codegraph_impact` | "What breaks if I change this?" | Ripple effect (transitive callers) |
-| `codegraph_context` | "Give me relevant code for task X" | Entry points + related code |
-| `codegraph_status` | "Is this project indexed?" | Stats about the index |
+If a symbol name is common (`Session`, `start`, `loop`, `run`), assume ambiguity.
 
----
+### Bad
 
-## ⚡ Performance Tips
-
-### CodeGraph is FAST (7 seconds to index 882 files!)
-- **Don't hesitate to use it.** It's not expensive.
-- **Search first, read later.** Don't grep through files manually.
-- **Use `includeCode=false` for broad exploration.** Only request code when you need it.
+```text
+node(symbol="Session", includeCode=true)
+```
 
-### When to Use Each Tool
+### Good
 
-**🔍 Discovery Phase (exploring unfamiliar code):**
-```
-1. codegraph_search → find candidates
-2. codegraph_node (includeCode=false) → scan options quickly
-3. codegraph_callers/callees → understand relationships
-4. codegraph_node (includeCode=true) → read the winners
+```text
+node(symbol="Session", kind="function", pathHint="cli/cmd/tui", includeCode=false)
 ```
 
-**🎯 Implementation Phase (building something):**
-```
-1. codegraph_context → get relevant context in one shot
-2. codegraph_node (includeCode=true) → deep dive on key symbols
-3. codegraph_impact → check what you might break
-```
+### Escalation ladder
 
-**🐛 Debugging Phase (fixing a bug):**
-```
-1. codegraph_search → find the function with the bug
-2. codegraph_callers → see how it's being called (wrong inputs?)
-3. codegraph_callees → see what it calls (where does it fail?)
-4. codegraph_impact → understand blast radius of a fix
-```
+1. Add `kind`.
+2. Add `pathHint`.
+3. Add `language` at search stage.
+4. Increase `limit` and inspect candidates.
 
----
+## Scoped Retrieval Patterns
 
-## 🚫 Common Mistakes
+### Pattern A: Architecture mapping
 
-### ❌ Mistake 1: Using `context` without a clear task
+```text
+context(
+  task="Map request path from route handlers to persistence",
+  maxNodes=35,
+  kind="function",
+  language="typescript",
+  pathHint="src/server",
+  includeFiles=false,
+  includeCode=false
+)
 ```
-codegraph_context("learn about the project")  // Too vague!
-```
-**Better:**
-```
-codegraph_context("implement OAuth authentication flow")  // Specific!
-```
 
-### ❌ Mistake 2: Reading files before searching
-```
-1. Read src/index.ts
-2. Read src/auth.ts
-3. Read src/database.ts
-```
-**Better:**
-```
-1. codegraph_search("authenticate")
-2. codegraph_node("authenticate", includeCode=true)  // Directly to the right code!
-```
+Then refine with targeted node/callers/callees lookups.
 
-### ❌ Mistake 3: Not using callers/callees
-```
-codegraph_node("processPayment", includeCode=true)
-// Now what? How is this used?
-```
-**Better:**
-```
-codegraph_node("processPayment", includeCode=true)
-codegraph_callers("processPayment")  // Ah! Called from checkout.ts and api.ts
-```
+### Pattern B: Debugging a behavior
 
-### ❌ Mistake 4: Using impact with depth > 3
-```
-codegraph_impact("logMessage", depth=5)  // Returns 500 results, total noise
-```
-**Better:**
-```
-codegraph_impact("logMessage", depth=2)  // Manageable set of affected code
+```text
+search(query="validateToken", kind="function", language="typescript", pathHint="src/auth", limit=10)
+callers(symbol="validateToken", kind="function", pathHint="src/auth", limit=20)
+callees(symbol="validateToken", kind="function", pathHint="src/auth", limit=20)
+impact(symbol="validateToken", kind="function", pathHint="src/auth", depth=2)
 ```
 
----
+### Pattern C: Finding file-level anchors
 
-## 🎓 Advanced Patterns
+```text
+search(query="session.ts", includeFiles=true, pathHint="cli/cmd/tui", limit=10)
+```
 
-### Finding Framework Entry Points (Express, React, Next.js, etc.)
+Use file nodes when path/file intent is explicit.
 
-**Express/Node:**
-```
-codegraph_search("app.listen")  // Server start
-codegraph_search("app.use")     // Middleware
-codegraph_search("app.get")     // Routes
-```
+## MCP-Only Investigation Protocol
 
-**React:**
-```
-codegraph_search("ReactDOM.render")  // App entry
-codegraph_search("App")              // Main component
-codegraph_search("useState")         // Stateful components
-```
+Use this when you want strict graph-only investigation (no shell fallback).
 
-**Next.js:**
-```
-codegraph_search("getServerSideProps")  // SSR pages
-codegraph_search("getStaticProps")      // SSG pages
-codegraph_search("API")                 // API routes
-```
+1. `set_root(...)`
+2. `status()`
+3. `context(...)` with `kind/language/pathHint/includeFiles=false`
+4. `search(...)` for missing anchors
+5. `node(...)` with `includeCode=false`
+6. `callers(...)` and `callees(...)`
+7. Re-run `node(..., includeCode=true)` on final symbols only
+8. Produce final flow with exact symbol + file evidence
 
-### Finding Test Coverage
-```
-codegraph_search("test")
-codegraph_search("describe")
-codegraph_search("it")
-```
-Then use `callers` to see what's tested!
+## Example: TUI ↔ Server Session Trace
 
-### Finding Security-Sensitive Code
-```
-codegraph_search("password")
-codegraph_search("token")
-codegraph_search("auth")
-codegraph_search("decrypt")
-```
+Goal: understand how user input in TUI becomes server execution and streams back.
 
----
+```text
+set_root(path="/Volumes/Terra/Users/rick/Projects/openfork-1.0")
+status()
 
-## 💡 Pro Tips from Expert AI Users
+context(
+  task="Trace TUI input -> SDK call -> server route -> prompt loop -> streaming updates back to TUI",
+  maxNodes=30,
+  kind="function",
+  language="typescript",
+  pathHint="packages/opencode/src",
+  includeFiles=false,
+  includeCode=false
+)
 
-### 1. **Chain searches to narrow down**
-```
-codegraph_search("user")       // 50 results, too many
-codegraph_search("createUser") // 5 results, perfect!
-```
+search(query="Session", kind="function", language="tsx", pathHint="cli/cmd/tui", limit=10)
+node(symbol="Session", kind="function", pathHint="cli/cmd/tui", includeCode=true)
 
-### 2. **Use node + callers to understand APIs**
+search(query="prompt", kind="function", language="typescript", pathHint="server/routes", limit=10)
+search(query="start", kind="function", language="typescript", pathHint="session/prompt", limit=10)
 ```
-codegraph_node("apiHandler", includeCode=true)  // See what it does
-codegraph_callers("apiHandler")                 // See how it's called (routes!)
-```
 
-### 3. **Impact analysis before refactoring**
-```
-codegraph_impact("oldFunction", depth=2)
-// If > 20 callers → careful!
-// If < 5 callers → safe to refactor
-```
+Deliverable format:
+- Step-by-step flow (6-10 steps)
+- For each step: symbol, file path, role in flow
+- Explicit unresolved ambiguities
 
-### 4. **Context + search combo for new features**
-```
-codegraph_context("implement rate limiting")     // Get overview
-codegraph_search("middleware")                   // Find where to plug it in
-codegraph_node("authMiddleware", includeCode=true)  // See similar pattern
-```
+## Troubleshooting
 
-### 5. **Use status to know if you need to sync**
-```
-codegraph_status()
-// If you changed files recently, run:
-codegraph_sync()
-```
+### Symptom: unrelated results (e.g., SDK/Rust noise)
 
----
+Actions:
+1. Add `pathHint` to target the subsystem.
+2. Add `language` filter.
+3. Add `kind` filter (`function`, `method`, etc.).
+4. Set `includeFiles=false` unless file intent is explicit.
+5. Reduce context scope (`maxNodes`) and iterate.
 
-## 🎬 Real Example: "Add Logging to All API Endpoints"
+### Symptom: wrong symbol chosen
 
-**Without CodeGraph:**
-1. Find all API files manually (grep? tree?)
-2. Read each file
-3. Find the handler functions
-4. Add logging to each
-5. Miss 3 files because they were named differently
+Actions:
+1. Re-run with `kind` + `pathHint`.
+2. Use `search` first and inspect top candidates.
+3. Use `node(..., includeCode=false)` before full code extraction.
 
-**With CodeGraph:**
-```
-1. codegraph_search("handler")
-   → Found: authHandler, userHandler, paymentHandler, webhookHandler
+### Symptom: context feels too broad
 
-2. For each handler:
-   codegraph_node("authHandler", includeCode=true)
-   → See the signature, understand the pattern
+Actions:
+1. Rewrite task with specific subsystem nouns.
+2. Add `pathHint` and `language`.
+3. Limit to function/method kinds first.
+4. Increase precision before increasing breadth.
 
-3. codegraph_callees("authHandler")
-   → See what it already does (maybe it already logs?)
+### Symptom: stale or missing results
 
-4. Add logging to each, confident you found them all
-```
+Actions:
+1. `status()`
+2. `codegraph sync`
+3. Full `codegraph index` if needed
 
-**Time saved:** 80% (and you didn't miss anything!)
+## Common Mistakes
 
----
+### Mistake 1: Vague context prompt
 
-## 🤝 Working with Other Agents
+Bad:
 
-If another AI agent (like Telos, Kai, or Starshine) is using CodeGraph:
-- **Ask them to show their workflow** - different agents have different styles
-- **Share discoveries** - "I found X using codegraph_search"
-- **Divide and conquer** - one agent explores, another implements
+```text
+context(task="learn this project")
+```
 
----
+Better:
 
-## 📚 When to Use CodeGraph vs. Other Tools
+```text
+context(
+  task="Trace OAuth login callback handling and token persistence",
+  kind="function",
+  language="typescript",
+  pathHint="src/auth",
+  includeFiles=false,
+  includeCode=false
+)
+```
 
-| Task | Use CodeGraph? | Alternative |
-|------|----------------|-------------|
-| Find where a function is defined | ✅ `codegraph_search` | grep/ripgrep |
-| See what calls a function | ✅ `codegraph_callers` | Manual search |
-| Understand function logic | ✅ `codegraph_node` + Read | Read tool directly |
-| See file contents | ❌ Use Read tool | Read tool |
-| Find files by path pattern | ❌ Use Glob tool | Glob tool |
-| Search file contents | ❌ Use Grep tool | Grep tool |
-| Understand relationships | ✅ CodeGraph is best | No good alternative |
+### Mistake 2: Reading code too early
 
-**Rule of thumb:** 
-- **Structure/relationships?** → CodeGraph
-- **Content/text?** → Read/Grep/Glob
+Bad:
 
----
+```text
+node(symbol="handler", includeCode=true)
+```
 
-## 🎯 Success Metrics
+Better:
 
-**You're using CodeGraph well if:**
-- ✅ You find the right code in < 3 tool calls
-- ✅ You understand call relationships without reading every file
-- ✅ You can explain "X calls Y which calls Z" confidently
-- ✅ You discover edge cases by following the graph
+```text
+search(query="handler", kind="function", pathHint="server/routes", limit=10)
+node(symbol="authHandler", kind="function", pathHint="server/routes", includeCode=false)
+```
 
-**You're not using it well if:**
-- ❌ You're still reading files sequentially to find things
-- ❌ You're using grep when search would be faster
-- ❌ You're guessing at relationships instead of checking callers/callees
-- ❌ You're asking the user "where is X?" when CodeGraph could tell you
+### Mistake 3: Ignoring callers/callees
 
----
+Reading one symbol rarely explains behavior. Always place it in a graph neighborhood.
 
-## 🚀 Next Level: Understanding the Index
+### Mistake 4: Overusing deep impact traversals
 
-CodeGraph indexes:
-- **Nodes:** Functions, classes, methods, variables, types
-- **Edges:** Calls, imports, extends, implements, references
+`depth > 3` often becomes noisy. Start at `depth=2`.
 
-**This means:**
-- If it's declared in code, CodeGraph knows about it
-- If it's a relationship, CodeGraph tracked it
-- Built-ins (like `map`, `parseInt`) are NOT indexed (they're external)
+## When to Use CodeGraph vs Other Tools
 
-**Unresolved references** = things that couldn't be traced:
-- External libraries (node_modules)
-- Built-in functions
-- Dynamic calls (eval, computed properties)
+Use CodeGraph first for:
+- Symbol discovery and disambiguation
+- Relationship tracing (callers/callees/impact)
+- Task context assembly
+- Scoped subsystem exploration
 
-**This is normal and expected!**
+Use direct file/content tools when:
+- You need exact literal text/strings not represented as symbols
+- You need non-code files not indexed into the graph
+- You need bulk text operations unrelated to symbol structure
 
----
+## Quality Checklist for Agents
 
-## 🎓 Graduation Test
+Before finalizing analysis, verify:
+- Root is set to the intended project
+- Index is current enough for the task
+- Ambiguous symbols were disambiguated with `kind/pathHint`
+- Claims are backed by symbol+file evidence
+- `includeCode=true` was used only where needed
 
-**You've mastered CodeGraph when you can:**
+## Recommended Prompt to Give Another Agent
 
-1. Find all functions that call `processPayment` (< 30 seconds)
-2. Explain the call chain from `main()` to `saveToDatabase()` (< 2 minutes)
-3. Gather context for "add rate limiting" without reading files manually (< 1 minute)
-4. Identify which functions would break if you change `validateUser()` (< 1 minute)
+```text
+Use ONLY CodeGraph MCP tools for this investigation (no shell/grep/glob/read fallback).
 
-**If you can do all four, you're a CodeGraph expert!** 🎯
+Project: /absolute/path/to/project
+Task: <specific task>
 
----
+Rules:
+- Set root and verify status first.
+- Prefer scoped queries (kind, language, pathHint, includeFiles=false).
+- If symbol is ambiguous, retry with kind + pathHint.
+- Use includeCode=true only on final symbols.
 
-## 🙏 Credits
+Deliverable:
+- 6-10 step flow with exact symbols
+- For each step: file path + role
+- Explicit unknowns/ambiguities
+```
 
-CodeGraph was optimized from 2m 31s → 7s through collaborative debugging by Rick and Telos, with major contributions to the hybrid InMemory+FTS5 approach that achieves 100% accuracy at 21.7x speed.
+## Performance Guidance
 
-**Now go forth and navigate code like a boss!** 🚀
+CodeGraph is generally fast for iterative exploration, but speed depends on project size, language mix, and machine resources.
 
----
+Practical guidance:
+- Keep queries specific.
+- Avoid broad context calls without filters.
+- Use `search -> node(no code) -> callers/callees -> node(with code)` as default loop.
 
-## 📖 Appendix: Quick Command Reference
+## Appendix: Compact Command Reference
 
-```bash
-# Project management
-codegraph_set_root("/path/to/project")
-codegraph_status()
-codegraph_sync()
+```text
+# Project and index
+set_root(path="/path/to/project")
+status()
+# If stale: sync() / index()
 
-# Discovery
-codegraph_search("symbolName")
-codegraph_node("symbolName", includeCode=true)
+# Search and details
+search(query="symbol", kind="function", language="typescript", pathHint="src/auth", includeFiles=false, limit=10)
+node(symbol="symbol", kind="function", pathHint="src/auth", includeCode=false)
 
-# Relationships
-codegraph_callers("symbolName")
-codegraph_callees("symbolName")
-codegraph_impact("symbolName", depth=2)
+# Graph relationships
+callers(symbol="symbol", kind="function", pathHint="src/auth", limit=20)
+callees(symbol="symbol", kind="function", pathHint="src/auth", limit=20)
+impact(symbol="symbol", kind="function", pathHint="src/auth", depth=2)
 
-# Context building
-codegraph_context("task description", maxNodes=20)
+# Task context
+context(task="specific engineering task", maxNodes=30, kind="function", language="typescript", pathHint="src/auth", includeFiles=false, includeCode=false)
 ```
 
-**That's it! Now you're ready to use CodeGraph like a pro.** 🎯
+This workflow consistently improves precision for both AI and human consumers.

@@ -62,7 +62,7 @@ export async function promptAutoAllow(): Promise<boolean> {
   console.log();
   console.log(chalk.bold('  Auto-allow CodeGraph commands?') + chalk.dim(' (Skips permission prompts)'));
   console.log();
-  console.log('  1) Yes - auto-approve all codegraph_* tools');
+  console.log('  1) Yes - auto-approve all CodeGraph MCP tools');
   console.log('  2) No - ask for permission each time');
   console.log();
 

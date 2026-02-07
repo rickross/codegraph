@@ -231,17 +231,18 @@ npm install -g @colbymchenry/codegraph
 {
   "permissions": {
     "allow": [
-      "mcp__codegraph__codegraph_search",
-      "mcp__codegraph__codegraph_context",
-      "mcp__codegraph__codegraph_callers",
-      "mcp__codegraph__codegraph_callees",
-      "mcp__codegraph__codegraph_impact",
-      "mcp__codegraph__codegraph_node",
-      "mcp__codegraph__codegraph_status"
+      "mcp__codegraph__search",
+      "mcp__codegraph__context",
+      "mcp__codegraph__callers",
+      "mcp__codegraph__callees",
+      "mcp__codegraph__impact",
+      "mcp__codegraph__node",
+      "mcp__codegraph__status"
     ]
   }
 }
 ```
+Legacy `mcp__codegraph__codegraph_*` tool names are still accepted.
 
 </details>
 
@@ -261,21 +262,21 @@ CodeGraph builds a semantic knowledge graph of codebases for faster, smarter cod
 
 | Tool | Use For |
 |------|---------|
-| `codegraph_search` | Find symbols by name (functions, classes, types) |
-| `codegraph_context` | Get relevant code context for a task |
-| `codegraph_callers` | Find what calls a function |
-| `codegraph_callees` | Find what a function calls |
-| `codegraph_impact` | See what's affected by changing a symbol |
-| `codegraph_node` | Get details + source code for a symbol |
+| `search` | Find symbols by name (functions, classes, types) |
+| `context` | Get relevant code context for a task |
+| `callers` | Find what calls a function |
+| `callees` | Find what a function calls |
+| `impact` | See what's affected by changing a symbol |
+| `node` | Get details + source code for a symbol |
 
 **When spawning Explore agents in a codegraph-enabled project:**
 
 Tell the Explore agent to use codegraph tools for faster exploration.
 
 **For quick lookups in the main session:**
-- Use `codegraph_search` instead of grep for finding symbols
-- Use `codegraph_callers`/`codegraph_callees` to trace code flow
-- Use `codegraph_impact` before making changes to see what's affected
+- Use `search` instead of grep for finding symbols
+- Use `callers`/`callees` to trace code flow
+- Use `impact` before making changes to see what's affected
 
 ### If `.codegraph/` does NOT exist
 
@@ -307,7 +308,13 @@ codegraph query <search>    # Search symbols
 codegraph context <task>    # Build context for AI
 codegraph hooks install     # Install git auto-sync hook
 codegraph serve --mcp       # Start MCP server
+codegraph --version         # Show version (includes git metadata in dev checkouts)
 ```
+
+Version output precedence:
+1. `CODEGRAPH_BUILD_VERSION` (full override, e.g. `0.3.2-rc.1`)
+2. `package.json` version + `CODEGRAPH_VERSION_SUFFIX` (e.g. `+ci.42`)
+3. `package.json` version + git metadata (`+g<sha>` or `+g<sha>.dirty`) when `.git` is available
 
 ## 📖 CLI Commands
 
@@ -418,48 +425,48 @@ codegraph serve --mcp --path /project    # Specify project path
 
 When running as an MCP server, CodeGraph exposes these tools to AI assistants. **These tools are designed to be used by Claude's Explore agents** for faster, more efficient codebase exploration.
 
-### `codegraph_context`
+### `context`
 
 Build context for a specific task. Good for focused queries.
 
 ```
-codegraph_context(task: "fix checkout validation bug", maxNodes: 20)
+context(task: "fix checkout validation bug", maxNodes: 20)
 ```
 
-### `codegraph_search`
+### `search`
 
 Quick symbol search by name. Returns locations only.
 
 ```
-codegraph_search(query: "UserService", kind: "class", limit: 10)
+search(query: "UserService", kind: "class", limit: 10)
 ```
 
-### `codegraph_callers` / `codegraph_callees`
+### `callers` / `callees`
 
 Find what calls a function, or what a function calls.
 
 ```
-codegraph_callers(symbol: "validatePayment", limit: 20)
-codegraph_callees(symbol: "processOrder", limit: 20)
+callers(symbol: "validatePayment", limit: 20)
+callees(symbol: "processOrder", limit: 20)
 ```
 
-### `codegraph_impact`
+### `impact`
 
 Analyze what code would be affected by changing a symbol.
 
 ```
-codegraph_impact(symbol: "UserService", depth: 2)
+impact(symbol: "UserService", depth: 2)
 ```
 
-### `codegraph_node`
+### `node`
 
 Get details about a specific symbol. Use `includeCode: true` only when needed.
 
 ```
-codegraph_node(symbol: "authenticate", includeCode: true)
+node(symbol: "authenticate", includeCode: true)
 ```
 
-### `codegraph_status`
+### `status`
 
 Check index health and statistics.
 
@@ -469,10 +476,10 @@ Claude's **Explore agents** use these tools instead of grep/glob/Read for faster
 
 | Without CodeGraph | With CodeGraph | Benefit |
 |-------------------|----------------|---------|
-| `grep -r "auth"` | `codegraph_search("auth")` | Instant symbol lookup |
-| Multiple `Read` calls | `codegraph_context(task)` | Related code in one call |
-| Manual file tracing | `codegraph_callers/callees` | Call graph traversal |
-| Guessing impact | `codegraph_impact(symbol)` | Know what breaks |
+| `grep -r "auth"` | `search("auth")` | Instant symbol lookup |
+| Multiple `Read` calls | `context(task)` | Related code in one call |
+| Manual file tracing | `callers/callees` | Call graph traversal |
+| Guessing impact | `impact(symbol)` | Know what breaks |
 
 This hybrid approach gives you **~30% fewer tokens** and **~25% fewer tool calls** while letting Claude's native agents handle synthesis.
 

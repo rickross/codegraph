@@ -114,6 +114,14 @@ export function writeMcpConfig(location: InstallLocation): void {
  */
 function getCodeGraphPermissions(): string[] {
   return [
+    'mcp__codegraph__search',
+    'mcp__codegraph__context',
+    'mcp__codegraph__callers',
+    'mcp__codegraph__callees',
+    'mcp__codegraph__impact',
+    'mcp__codegraph__node',
+    'mcp__codegraph__status',
+    // Legacy aliases (backward compatibility)
     'mcp__codegraph__codegraph_search',
     'mcp__codegraph__codegraph_context',
     'mcp__codegraph__codegraph_callers',

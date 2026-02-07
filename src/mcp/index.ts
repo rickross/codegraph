@@ -17,7 +17,7 @@
 
 import CodeGraph from '../index';
 import { StdioTransport, JsonRpcRequest, JsonRpcNotification, ErrorCodes } from './transport';
-import { tools, ToolHandler } from './tools';
+import { tools, ToolHandler, normalizeToolName } from './tools';
 
 /**
  * MCP Server Info
@@ -73,7 +73,7 @@ export class MCPServer {
     this.projectPath = projectPath;
 
     if (!CodeGraph.isInitialized(projectPath)) {
-      this.initError = `CodeGraph not initialized in ${projectPath}. Run codegraph_init to initialize it first.`;
+      this.initError = `CodeGraph not initialized in ${projectPath}. Run init to initialize it first.`;
       return;
     }
 
@@ -211,10 +211,11 @@ export class MCPServer {
     }
 
     const toolName = params.name;
+    const normalizedToolName = normalizeToolName(toolName);
     const toolArgs = params.arguments || {};
 
-    // Validate tool exists
-    const tool = tools.find(t => t.name === toolName);
+    // Validate tool exists (legacy codegraph_* names are normalized to canonical names)
+    const tool = tools.find(t => t.name === normalizedToolName);
     if (!tool) {
       this.transport.sendError(
         request.id,
@@ -225,7 +226,7 @@ export class MCPServer {
     }
 
     // Handle get_project - return current project path
-    if (toolName === 'codegraph_get_root') {
+    if (normalizedToolName === 'get_root') {
       const result = {
         content: [{
           type: 'text' as const,
@@ -237,7 +238,7 @@ export class MCPServer {
     }
 
     // Handle set_root specially - needs to reinitialize CodeGraph
-    if (toolName === 'codegraph_set_root') {
+    if (normalizedToolName === 'set_root') {
       try {
         const newPath = toolArgs.path as string;
         if (!newPath) {
@@ -292,7 +293,7 @@ export class MCPServer {
           const result = {
             content: [{
               type: 'text' as const,
-              text: `Root set to: ${newPath}\n\nCodeGraph not initialized yet. Run codegraph_init to initialize it.`
+              text: `Root set to: ${newPath}\n\nCodeGraph not initialized yet. Run init to initialize it.`
             }]
           };
           this.transport.sendResult(request.id, result);
@@ -309,13 +310,13 @@ export class MCPServer {
     }
 
     // Handle init - initialize CodeGraph in current root
-    if (toolName === 'codegraph_init') {
+    if (normalizedToolName === 'init') {
       try {
         if (!this.projectPath) {
           this.transport.sendError(
             request.id,
             ErrorCodes.InvalidParams,
-            'No root currently set. Use codegraph_set_root first.'
+            'No root currently set. Use set_root first.'
           );
           return;
         }
@@ -326,9 +327,9 @@ export class MCPServer {
         const result = {
           content: [{
             type: 'text' as const,
-            text: `Successfully initialized CodeGraph in ${this.projectPath}\n\nNext step: Run codegraph_index to build the index`
-          }]
-        };
+              text: `Successfully initialized CodeGraph in ${this.projectPath}\n\nNext step: Run index to build the index`
+            }]
+          };
         this.transport.sendResult(request.id, result);
         return;
       } catch (error) {
@@ -342,13 +343,13 @@ export class MCPServer {
     }
 
     // Handle index - full index of current root
-    if (toolName === 'codegraph_index') {
+    if (normalizedToolName === 'index') {
       try {
         if (!this.projectPath) {
           this.transport.sendError(
             request.id,
             ErrorCodes.InvalidParams,
-            'No root currently set. Use codegraph_set_root first.'
+            'No root currently set. Use set_root first.'
           );
           return;
         }
@@ -387,13 +388,13 @@ export class MCPServer {
     }
 
     // Handle sync - incremental sync of current root
-    if (toolName === 'codegraph_sync') {
+    if (normalizedToolName === 'sync') {
       try {
         if (!this.cg) {
           this.transport.sendError(
             request.id,
             ErrorCodes.InvalidParams,
-            'No root currently active. Use codegraph_set_root first.'
+            'No root currently active. Use set_root first.'
           );
           return;
         }
@@ -420,13 +421,13 @@ export class MCPServer {
     }
 
     // Handle uninit - remove CodeGraph from current root
-    if (toolName === 'codegraph_uninit') {
+    if (normalizedToolName === 'uninit') {
       try {
         if (!this.cg) {
           this.transport.sendError(
             request.id,
             ErrorCodes.InvalidParams,
-            'No root currently active. Use codegraph_set_root first.'
+            'No root currently active. Use set_root first.'
           );
           return;
         }
@@ -442,7 +443,7 @@ export class MCPServer {
         const result = {
           content: [{
             type: 'text' as const,
-            text: `Successfully removed CodeGraph from ${rootPath}\n\nThe .codegraph/ directory has been deleted.\n\nRoot is still set to: ${rootPath}\nYou can now call codegraph_init to reinitialize.`
+            text: `Successfully removed CodeGraph from ${rootPath}\n\nThe .codegraph/ directory has been deleted.\n\nRoot is still set to: ${rootPath}\nYou can now call init to reinitialize.`
           }]
         };
         this.transport.sendResult(request.id, result);
@@ -471,7 +472,7 @@ export class MCPServer {
       return;
     }
 
-    const result = await this.toolHandler.execute(toolName, toolArgs);
+    const result = await this.toolHandler.execute(normalizedToolName, toolArgs);
 
     this.transport.sendResult(request.id, result);
   }

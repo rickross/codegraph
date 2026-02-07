@@ -314,6 +314,9 @@ export interface SearchOptions {
   /** Node types to search */
   kinds?: NodeKind[];
 
+  /** Whether to include file nodes in results (default: false unless query looks file-like) */
+  includeFiles?: boolean;
+
   /** Languages to include */
   languages?: Language[];
 
@@ -728,6 +731,21 @@ export interface BuildContextOptions {
 
   /** Minimum semantic similarity score (default: 0.3) */
   minScore?: number;
+
+  /** Node types to prioritize/include for search + traversal */
+  nodeKinds?: NodeKind[];
+
+  /** Edge types to follow during traversal */
+  edgeKinds?: EdgeKind[];
+
+  /** Restrict entry-point retrieval to files containing this path substring */
+  pathHint?: string | undefined;
+
+  /** Restrict entry-point retrieval to this language */
+  language?: Language | undefined;
+
+  /** Include file nodes in entry-point retrieval */
+  includeFiles?: boolean | undefined;
 }
 
 /**
@@ -788,4 +806,13 @@ export interface FindRelevantContextOptions {
 
   /** Node types to include */
   nodeKinds?: NodeKind[];
+
+  /** Restrict entry-point retrieval to files containing this path substring */
+  pathHint?: string | undefined;
+
+  /** Restrict entry-point retrieval to this language */
+  language?: Language | undefined;
+
+  /** Include file nodes in entry-point retrieval */
+  includeFiles?: boolean | undefined;
 }

@@ -397,17 +397,41 @@ export class QueryBuilder {
    * Search strategy:
    * 1. Try FTS5 prefix match (query*) for word-start matching
    * 2. If no results, try LIKE for substring matching (e.g., "signIn" finds "signInWithGoogle")
-   * 3. Score results based on match quality
+   * 3. Re-rank by lexical match quality and kind priority
    */
   searchNodes(query: string, options: SearchOptions = {}): SearchResult[] {
-    const { kinds, languages, limit = 100, offset = 0 } = options;
+    const {
+      kinds,
+      languages,
+      includePatterns,
+      excludePatterns,
+      limit = 100,
+      offset = 0,
+    } = options;
+    const fileIntent = this.isFileIntentQuery(query);
+    const includeFiles = this.shouldIncludeFileNodes(options, fileIntent);
+    const excludeFiles = !includeFiles && !(kinds && kinds.includes('file'));
 
     // First try FTS5 with prefix matching
-    let results = this.searchNodesFTS(query, { kinds, languages, limit, offset });
+    let results = this.searchNodesFTS(
+      query,
+      { kinds, languages, limit, offset },
+      excludeFiles,
+      fileIntent,
+      includePatterns,
+      excludePatterns
+    );
 
     // If no FTS results, try LIKE-based substring search
     if (results.length === 0 && query.length >= 2) {
-      results = this.searchNodesLike(query, { kinds, languages, limit, offset });
+      results = this.searchNodesLike(
+        query,
+        { kinds, languages, limit, offset },
+        excludeFiles,
+        fileIntent,
+        includePatterns,
+        excludePatterns
+      );
     }
 
     return results;
@@ -416,22 +440,69 @@ export class QueryBuilder {
   /**
    * FTS5 search with prefix matching
    */
-  private searchNodesFTS(query: string, options: SearchOptions): SearchResult[] {
+  private searchNodesFTS(
+    query: string,
+    options: SearchOptions,
+    excludeFiles: boolean,
+    fileIntent: boolean,
+    includePatterns?: string[],
+    excludePatterns?: string[]
+  ): SearchResult[] {
     const { kinds, languages, limit = 100, offset = 0 } = options;
 
-    // Add prefix wildcard for better matching (e.g., "auth" matches "AuthService", "authenticate")
-    // Escape special FTS5 characters and add prefix wildcard
-    const ftsQuery = query
-      .replace(/['"*()]/g, '') // Remove special chars
-      .split(/\s+/)
-      .filter(term => term.length > 0)
-      .map(term => `"${term}"*`) // Prefix match each term
-      .join(' OR ');
-
-    if (!ftsQuery) {
+    const terms = this.extractSearchTerms(query);
+    if (terms.length === 0) {
       return [];
     }
 
+    // For natural-language queries, try stricter AND semantics first, then relax to OR.
+    const strictQuery = this.buildFtsQuery(terms, terms.length > 1 ? 'AND' : 'OR');
+    let results = this.runFtsQuery(
+      strictQuery,
+      query,
+      kinds,
+      languages,
+      limit,
+      offset,
+      excludeFiles,
+      fileIntent,
+      includePatterns,
+      excludePatterns
+    );
+
+    if (results.length === 0 && terms.length > 1) {
+      const relaxedQuery = this.buildFtsQuery(terms, 'OR');
+      if (relaxedQuery !== strictQuery) {
+        results = this.runFtsQuery(
+          relaxedQuery,
+          query,
+          kinds,
+          languages,
+          limit,
+          offset,
+          excludeFiles,
+          fileIntent,
+          includePatterns,
+          excludePatterns
+        );
+      }
+    }
+
+    return results;
+  }
+
+  private runFtsQuery(
+    ftsQuery: string,
+    query: string,
+    kinds: NodeKind[] | undefined,
+    languages: Language[] | undefined,
+    limit: number,
+    offset: number,
+    excludeFiles: boolean,
+    fileIntent: boolean,
+    includePatterns?: string[],
+    excludePatterns?: string[]
+  ): SearchResult[] {
     let sql = `
       SELECT nodes.*, bm25(nodes_fts) as score
       FROM nodes_fts
@@ -451,15 +522,48 @@ export class QueryBuilder {
       params.push(...languages);
     }
 
-    sql += ' ORDER BY score LIMIT ? OFFSET ?';
-    params.push(limit, offset);
+    if (excludeFiles) {
+      sql += " AND nodes.kind != 'file'";
+    }
+
+    const patternFilters = this.buildPathPatternFilterSql(
+      'nodes.file_path',
+      includePatterns,
+      excludePatterns
+    );
+    sql += patternFilters.sql;
+    params.push(...patternFilters.params);
+
+    const candidateLimit = Math.max((limit + offset) * 5, 200);
+    sql += ' ORDER BY score LIMIT ?';
+    params.push(candidateLimit);
 
     try {
       const rows = this.db.prepare(sql).all(...params) as (NodeRow & { score: number })[];
-      return rows.map((row) => ({
-        node: rowToNode(row),
-        score: Math.abs(row.score), // bm25 returns negative scores
-      }));
+      const ranked = rows
+        .map((row) => {
+          const node = rowToNode(row);
+          const lexical = this.computeLexicalScore(node, query);
+          const kindScore = this.getKindPriorityScore(node.kind, fileIntent);
+          const bm25Score = 1 / (1 + Math.abs(row.score));
+          const combinedScore = lexical * 0.55 + kindScore * 0.25 + bm25Score * 0.2;
+          return {
+            node,
+            lexical,
+            kindScore,
+            bm25Raw: row.score,
+            score: combinedScore,
+          };
+        })
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          if (b.lexical !== a.lexical) return b.lexical - a.lexical;
+          if (b.kindScore !== a.kindScore) return b.kindScore - a.kindScore;
+          if (a.bm25Raw !== b.bm25Raw) return a.bm25Raw - b.bm25Raw;
+          return a.node.name.length - b.node.name.length;
+        });
+
+      return ranked.slice(offset, offset + limit).map(({ node, score }) => ({ node, score }));
     } catch {
       // FTS query failed, return empty
       return [];
@@ -470,18 +574,18 @@ export class QueryBuilder {
    * LIKE-based substring search for cases where FTS doesn't match
    * Useful for camelCase matching (e.g., "signIn" finds "signInWithGoogle")
    */
-  private searchNodesLike(query: string, options: SearchOptions): SearchResult[] {
+  private searchNodesLike(
+    query: string,
+    options: SearchOptions,
+    excludeFiles: boolean,
+    fileIntent: boolean,
+    includePatterns?: string[],
+    excludePatterns?: string[]
+  ): SearchResult[] {
     const { kinds, languages, limit = 100, offset = 0 } = options;
 
     let sql = `
-      SELECT nodes.*,
-        CASE
-          WHEN name = ? THEN 1.0
-          WHEN name LIKE ? THEN 0.9
-          WHEN name LIKE ? THEN 0.8
-          WHEN qualified_name LIKE ? THEN 0.7
-          ELSE 0.5
-        END as score
+      SELECT nodes.*
       FROM nodes
       WHERE (
         name LIKE ? OR
@@ -496,10 +600,6 @@ export class QueryBuilder {
     const contains = `%${query}%`;
 
     const params: (string | number)[] = [
-      exactMatch,     // Exact match score
-      startsWith,     // Starts with score
-      contains,       // Contains score
-      contains,       // Qualified name score
       contains,       // WHERE: name contains
       contains,       // WHERE: qualified_name contains
       startsWith,     // WHERE: name starts with
@@ -515,15 +615,214 @@ export class QueryBuilder {
       params.push(...languages);
     }
 
-    sql += ' ORDER BY score DESC, length(name) ASC LIMIT ? OFFSET ?';
-    params.push(limit, offset);
+    if (excludeFiles) {
+      sql += " AND kind != 'file'";
+    }
 
-    const rows = this.db.prepare(sql).all(...params) as (NodeRow & { score: number })[];
+    const patternFilters = this.buildPathPatternFilterSql(
+      'file_path',
+      includePatterns,
+      excludePatterns
+    );
+    sql += patternFilters.sql;
+    params.push(...patternFilters.params);
 
-    return rows.map((row) => ({
-      node: rowToNode(row),
-      score: row.score,
-    }));
+    const candidateLimit = Math.max((limit + offset) * 5, 200);
+    sql += ' LIMIT ?';
+    params.push(candidateLimit);
+
+    const rows = this.db.prepare(sql).all(...params) as NodeRow[];
+    const ranked = rows
+      .map((row) => {
+        const node = rowToNode(row);
+        const lexical = this.computeLexicalScore(node, exactMatch);
+        const kindScore = this.getKindPriorityScore(node.kind, fileIntent);
+        const score = lexical * 0.8 + kindScore * 0.2;
+        return { node, lexical, kindScore, score };
+      })
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.lexical !== a.lexical) return b.lexical - a.lexical;
+        if (b.kindScore !== a.kindScore) return b.kindScore - a.kindScore;
+        return a.node.name.length - b.node.name.length;
+      });
+
+    return ranked.slice(offset, offset + limit).map(({ node, score }) => ({ node, score }));
+  }
+
+  private shouldIncludeFileNodes(options: SearchOptions, fileIntent: boolean): boolean {
+    if (options.includeFiles === true) {
+      return true;
+    }
+    if (options.includeFiles === false) {
+      return false;
+    }
+    if (options.kinds && options.kinds.length > 0) {
+      return options.kinds.includes('file');
+    }
+    return fileIntent;
+  }
+
+  private isFileIntentQuery(query: string): boolean {
+    const trimmed = query.trim();
+    if (!trimmed) return false;
+    return /[\\/]/.test(trimmed) || /\.[a-z0-9]{1,8}$/i.test(trimmed);
+  }
+
+  private computeLexicalScore(node: Node, query: string): number {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return 0;
+
+    const terms = this.extractSearchTerms(query).slice(0, 8);
+    if (terms.length <= 1) {
+      return this.computeTermMatchScore(node, terms[0] ?? normalizedQuery);
+    }
+
+    const termScores = terms.map((term) => this.computeTermMatchScore(node, term));
+    const matchedScores = termScores.filter((score) => score > 0.2);
+    if (matchedScores.length === 0) {
+      return 0.2;
+    }
+
+    const avg = matchedScores.reduce((sum, score) => sum + score, 0) / matchedScores.length;
+    const coverage = matchedScores.length / terms.length;
+    return avg * 0.75 + coverage * 0.25;
+  }
+
+  private computeTermMatchScore(node: Node, term: string): number {
+    const normalizedTerm = term.trim().toLowerCase();
+    if (!normalizedTerm) return 0.2;
+
+    const name = node.name.toLowerCase();
+    const qualified = node.qualifiedName.toLowerCase();
+    const filePath = node.filePath.toLowerCase();
+    const fileName = filePath.split('/').pop() ?? '';
+    const isFileNode = node.kind === 'file';
+
+    if (name === normalizedTerm || qualified === normalizedTerm) {
+      return 1.0;
+    }
+    if (isFileNode && fileName === normalizedTerm) {
+      return 1.0;
+    }
+    if (name.startsWith(normalizedTerm) || fileName.startsWith(normalizedTerm)) {
+      return 0.92;
+    }
+    if (name.includes(normalizedTerm) || fileName.includes(normalizedTerm)) {
+      return 0.85;
+    }
+    if (filePath.includes(`/${normalizedTerm}/`) || filePath.includes(`/${normalizedTerm}.`)) {
+      return 0.82;
+    }
+    if (qualified.includes(normalizedTerm) || filePath.includes(normalizedTerm)) {
+      return 0.7;
+    }
+
+    return 0.2;
+  }
+
+  private extractSearchTerms(query: string): string[] {
+    const stopWords = new Set([
+      'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'in',
+      'into', 'is', 'it', 'its', 'of', 'on', 'or', 'that', 'the', 'their', 'this',
+      'to', 'understand', 'with', 'during', 'show', 'me'
+    ]);
+
+    const cleaned = query
+      .toLowerCase()
+      .replace(/['"*()]/g, ' ')
+      .replace(/[^a-z0-9_./\\-]+/g, ' ')
+      .trim();
+
+    if (!cleaned) return [];
+
+    const terms = cleaned
+      .split(/\s+/)
+      .map((term) => term.replace(/^[./\\-]+|[./\\-]+$/g, ''))
+      .filter((term) => term.length >= 2)
+      .filter((term) => !stopWords.has(term));
+
+    return Array.from(new Set(terms));
+  }
+
+  private buildFtsQuery(terms: string[], operator: 'AND' | 'OR'): string {
+    return terms.map((term) => `"${term}"*`).join(` ${operator} `);
+  }
+
+  private getKindPriorityScore(kind: NodeKind, fileIntent: boolean): number {
+    switch (kind) {
+      case 'function':
+        return 1.0;
+      case 'method':
+        return 0.98;
+      case 'component':
+        return 0.95;
+      case 'class':
+      case 'struct':
+      case 'interface':
+      case 'trait':
+      case 'protocol':
+        return 0.93;
+      case 'route':
+        return 0.9;
+      case 'module':
+      case 'namespace':
+        return 0.85;
+      case 'type_alias':
+      case 'enum':
+      case 'enum_member':
+      case 'property':
+      case 'field':
+      case 'variable':
+      case 'constant':
+      case 'parameter':
+      case 'import':
+      case 'export':
+        return 0.78;
+      case 'file':
+        return fileIntent ? 0.97 : 0.1;
+      default:
+        return 0.7;
+    }
+  }
+
+  private buildPathPatternFilterSql(
+    column: string,
+    includePatterns?: string[],
+    excludePatterns?: string[]
+  ): { sql: string; params: string[] } {
+    const sqlParts: string[] = [];
+    const params: string[] = [];
+
+    const includeLikes = (includePatterns ?? [])
+      .map((pattern) => this.globToLike(pattern))
+      .filter((pattern): pattern is string => pattern.length > 0);
+    if (includeLikes.length > 0) {
+      sqlParts.push(` AND (${includeLikes.map(() => `${column} LIKE ? ESCAPE '\\'`).join(' OR ')})`);
+      params.push(...includeLikes);
+    }
+
+    const excludeLikes = (excludePatterns ?? [])
+      .map((pattern) => this.globToLike(pattern))
+      .filter((pattern): pattern is string => pattern.length > 0);
+    if (excludeLikes.length > 0) {
+      sqlParts.push(` AND (${excludeLikes.map(() => `${column} NOT LIKE ? ESCAPE '\\'`).join(' AND ')})`);
+      params.push(...excludeLikes);
+    }
+
+    return { sql: sqlParts.join(''), params };
+  }
+
+  private globToLike(pattern: string): string {
+    const trimmed = pattern.trim();
+    if (!trimmed) return '';
+
+    const escaped = trimmed
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
+
+    return escaped.replace(/\*/g, '%').replace(/\?/g, '_');
   }
 
   // ===========================================================================

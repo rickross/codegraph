@@ -20,6 +20,7 @@
 import { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs';
+import { execSync } from 'child_process';
 import CodeGraph from '../index';
 import type { IndexProgress } from '../index';
 import { runInstaller } from '../installer';
@@ -43,6 +44,7 @@ const program = new Command();
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf-8')
 );
+const cliVersion = getCliVersion(packageJson.version);
 
 // =============================================================================
 // ANSI Color Helpers (avoid chalk ESM issues)
@@ -76,7 +78,7 @@ const chalk = {
 program
   .name('codegraph')
   .description('Code intelligence and knowledge graph for any codebase')
-  .version(packageJson.version);
+  .version(cliVersion);
 
 // =============================================================================
 // Helper Functions
@@ -87,6 +89,68 @@ program
  */
 function resolveProjectPath(pathArg?: string): string {
   return path.resolve(pathArg || process.cwd());
+}
+
+/**
+ * Build CLI version string.
+ *
+ * Priority:
+ * 1. CODEGRAPH_BUILD_VERSION (full override)
+ * 2. package.json version + optional CODEGRAPH_VERSION_SUFFIX
+ * 3. package.json version + git metadata (+g<sha>[.dirty]) when available
+ */
+function getCliVersion(baseVersion: string): string {
+  const buildVersion = process.env.CODEGRAPH_BUILD_VERSION?.trim();
+  if (buildVersion) {
+    return buildVersion;
+  }
+
+  const suffix = process.env.CODEGRAPH_VERSION_SUFFIX?.trim();
+  if (suffix) {
+    const normalized = suffix.startsWith('+') || suffix.startsWith('-')
+      ? suffix
+      : `+${suffix}`;
+    return `${baseVersion}${normalized}`;
+  }
+
+  const gitMetadata = getGitMetadata();
+  if (!gitMetadata) {
+    return baseVersion;
+  }
+
+  return `${baseVersion}+${gitMetadata}`;
+}
+
+/**
+ * Return git build metadata ("g<sha>" or "g<sha>.dirty") when running in a git checkout.
+ */
+function getGitMetadata(): string | null {
+  const repoRoot = path.join(__dirname, '..', '..');
+  if (!fs.existsSync(path.join(repoRoot, '.git'))) {
+    return null;
+  }
+
+  try {
+    const shortSha = execSync('git rev-parse --short HEAD', {
+      cwd: repoRoot,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8',
+    }).trim();
+
+    if (!shortSha) {
+      return null;
+    }
+
+    const dirty = execSync('git status --porcelain', {
+      cwd: repoRoot,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8',
+    }).trim().length > 0;
+
+    return dirty ? `g${shortSha}.dirty` : `g${shortSha}`;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -584,8 +648,19 @@ program
   .option('-p, --path <path>', 'Project path')
   .option('-l, --limit <number>', 'Maximum results', '10')
   .option('-k, --kind <kind>', 'Filter by node kind (function, class, etc.)')
+  .option('--language <language>', 'Filter by language (typescript, python, etc.)')
+  .option('--path-hint <pathHint>', 'Filter by file path substring')
+  .option('--include-files', 'Include file nodes in results')
   .option('-j, --json', 'Output as JSON')
-  .action(async (search: string, options: { path?: string; limit?: string; kind?: string; json?: boolean }) => {
+  .action(async (search: string, options: {
+    path?: string;
+    limit?: string;
+    kind?: string;
+    language?: string;
+    pathHint?: string;
+    includeFiles?: boolean;
+    json?: boolean;
+  }) => {
     const projectPath = resolveProjectPath(options.path);
 
     try {
@@ -600,6 +675,9 @@ program
       const results = cg.searchNodes(search, {
         limit,
         kinds: options.kind ? [options.kind as any] : undefined,
+        languages: options.language ? [options.language as any] : undefined,
+        includePatterns: options.pathHint ? [`*${options.pathHint.trim()}*`] : undefined,
+        includeFiles: options.includeFiles,
       });
 
       if (options.json) {
@@ -645,12 +723,20 @@ program
   .option('-p, --path <path>', 'Project path')
   .option('-n, --max-nodes <number>', 'Maximum nodes to include', '50')
   .option('-c, --max-code <number>', 'Maximum code blocks', '10')
+  .option('-k, --kind <kind>', 'Filter entry-point node kind')
+  .option('--language <language>', 'Filter entry-point language')
+  .option('--path-hint <pathHint>', 'Filter entry-point file path substring')
+  .option('--include-files', 'Include file nodes as entry points')
   .option('--no-code', 'Exclude code blocks')
   .option('-f, --format <format>', 'Output format (markdown, json)', 'markdown')
   .action(async (task: string, options: {
     path?: string;
     maxNodes?: string;
     maxCode?: string;
+    kind?: string;
+    language?: string;
+    pathHint?: string;
+    includeFiles?: boolean;
     code?: boolean;
     format?: string;
   }) => {
@@ -667,6 +753,10 @@ program
       const context = await cg.buildContext(task, {
         maxNodes: parseInt(options.maxNodes || '50', 10),
         maxCodeBlocks: parseInt(options.maxCode || '10', 10),
+        nodeKinds: options.kind ? [options.kind as any] : undefined,
+        language: options.language as any,
+        pathHint: options.pathHint,
+        includeFiles: options.includeFiles,
         includeCode: options.code !== false,
         format: options.format as 'markdown' | 'json',
       });
@@ -837,13 +927,14 @@ program
 }
 `));
         console.log('Available tools:');
-        console.log(chalk.cyan('  codegraph_search') + '    - Search for code symbols');
-        console.log(chalk.cyan('  codegraph_context') + '   - Build context for a task');
-        console.log(chalk.cyan('  codegraph_callers') + '   - Find callers of a symbol');
-        console.log(chalk.cyan('  codegraph_callees') + '   - Find what a symbol calls');
-        console.log(chalk.cyan('  codegraph_impact') + '    - Analyze impact of changes');
-        console.log(chalk.cyan('  codegraph_node') + '      - Get symbol details');
-        console.log(chalk.cyan('  codegraph_status') + '    - Get index status');
+        console.log(chalk.cyan('  search') + '         - Search for code symbols');
+        console.log(chalk.cyan('  context') + '        - Build context for a task');
+        console.log(chalk.cyan('  callers') + '        - Find callers of a symbol');
+        console.log(chalk.cyan('  callees') + '        - Find what a symbol calls');
+        console.log(chalk.cyan('  impact') + '         - Analyze impact of changes');
+        console.log(chalk.cyan('  node') + '           - Get symbol details');
+        console.log(chalk.cyan('  status') + '         - Get index status');
+        console.log(chalk.dim('Legacy codegraph_* aliases are still supported for compatibility.'));
       }
     } catch (err) {
       error(`Failed to start server: ${err instanceof Error ? err.message : String(err)}`);

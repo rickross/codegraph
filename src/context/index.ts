@@ -32,7 +32,7 @@ import { logDebug, logWarn } from '../errors';
  * - Smaller code block size limit
  * - Shallower traversal
  */
-const DEFAULT_BUILD_OPTIONS: Required<BuildContextOptions> = {
+const DEFAULT_BUILD_OPTIONS = {
   maxNodes: 20,           // Reduced from 50 - most tasks don't need 50 symbols
   maxCodeBlocks: 5,       // Reduced from 10 - only show most relevant code
   maxCodeBlockSize: 1500, // Reduced from 2000
@@ -41,12 +41,14 @@ const DEFAULT_BUILD_OPTIONS: Required<BuildContextOptions> = {
   searchLimit: 3,         // Reduced from 5 - fewer entry points
   traversalDepth: 1,      // Reduced from 2 - shallower graph expansion
   minScore: 0.3,
+  nodeKinds: [],
+  edgeKinds: [],
 };
 
 /**
  * Default options for finding relevant context
  */
-const DEFAULT_FIND_OPTIONS: Required<FindRelevantContextOptions> = {
+const DEFAULT_FIND_OPTIONS = {
   searchLimit: 3,        // Reduced from 5
   traversalDepth: 1,     // Reduced from 2
   maxNodes: 20,          // Reduced from 50
@@ -97,7 +99,21 @@ export class ContextBuilder {
     input: TaskInput,
     options: BuildContextOptions = {}
   ): Promise<TaskContext | string> {
-    const opts = { ...DEFAULT_BUILD_OPTIONS, ...options };
+    const opts = {
+      maxNodes: options.maxNodes ?? DEFAULT_BUILD_OPTIONS.maxNodes,
+      maxCodeBlocks: options.maxCodeBlocks ?? DEFAULT_BUILD_OPTIONS.maxCodeBlocks,
+      maxCodeBlockSize: options.maxCodeBlockSize ?? DEFAULT_BUILD_OPTIONS.maxCodeBlockSize,
+      includeCode: options.includeCode ?? DEFAULT_BUILD_OPTIONS.includeCode,
+      format: options.format ?? DEFAULT_BUILD_OPTIONS.format,
+      searchLimit: options.searchLimit ?? DEFAULT_BUILD_OPTIONS.searchLimit,
+      traversalDepth: options.traversalDepth ?? DEFAULT_BUILD_OPTIONS.traversalDepth,
+      minScore: options.minScore ?? DEFAULT_BUILD_OPTIONS.minScore,
+      nodeKinds: options.nodeKinds ?? DEFAULT_BUILD_OPTIONS.nodeKinds,
+      edgeKinds: options.edgeKinds ?? DEFAULT_BUILD_OPTIONS.edgeKinds,
+      pathHint: options.pathHint,
+      language: options.language,
+      includeFiles: options.includeFiles,
+    };
 
     // Parse input
     const query = typeof input === 'string' ? input : `${input.title}${input.description ? `: ${input.description}` : ''}`;
@@ -108,6 +124,11 @@ export class ContextBuilder {
       traversalDepth: opts.traversalDepth,
       maxNodes: opts.maxNodes,
       minScore: opts.minScore,
+      nodeKinds: opts.nodeKinds,
+      edgeKinds: opts.edgeKinds,
+      pathHint: opts.pathHint,
+      language: opts.language,
+      includeFiles: opts.includeFiles,
     });
 
     // Get entry points (nodes from semantic search)
@@ -169,7 +190,22 @@ export class ContextBuilder {
     query: string,
     options: FindRelevantContextOptions = {}
   ): Promise<Subgraph> {
-    const opts = { ...DEFAULT_FIND_OPTIONS, ...options };
+    const opts = {
+      searchLimit: options.searchLimit ?? DEFAULT_FIND_OPTIONS.searchLimit,
+      traversalDepth: options.traversalDepth ?? DEFAULT_FIND_OPTIONS.traversalDepth,
+      maxNodes: options.maxNodes ?? DEFAULT_FIND_OPTIONS.maxNodes,
+      minScore: options.minScore ?? DEFAULT_FIND_OPTIONS.minScore,
+      edgeKinds: options.edgeKinds ?? DEFAULT_FIND_OPTIONS.edgeKinds,
+      nodeKinds: options.nodeKinds ?? DEFAULT_FIND_OPTIONS.nodeKinds,
+      pathHint: options.pathHint,
+      language: options.language,
+      includeFiles: options.includeFiles,
+    };
+    const includeFiles = this.resolveIncludeFiles(query, opts.includeFiles);
+    const pathHint = opts.pathHint?.trim().toLowerCase();
+    const language = opts.language;
+    const nodeKinds = opts.nodeKinds && opts.nodeKinds.length > 0 ? opts.nodeKinds : undefined;
+    const candidateLimit = Math.max(opts.searchLimit * 4, 20);
 
     // Start with empty subgraph
     const nodes = new Map<string, Node>();
@@ -185,9 +221,16 @@ export class ContextBuilder {
     let searchResults: SearchResult[] = [];
     if (this.vectorManager && this.vectorManager.isInitialized()) {
       try {
-        searchResults = await this.vectorManager.search(query, {
+        const semanticResults = await this.vectorManager.search(query, {
+          limit: candidateLimit,
+          kinds: nodeKinds,
+        });
+        searchResults = this.rankAndFilterSearchResults(semanticResults, query, {
+          minScore: opts.minScore,
           limit: opts.searchLimit,
-          kinds: opts.nodeKinds && opts.nodeKinds.length > 0 ? opts.nodeKinds : undefined,
+          includeFiles,
+          pathHint,
+          language,
         });
       } catch (error) {
         logDebug('Semantic search failed, falling back to text search', { query, error: String(error) });
@@ -198,37 +241,45 @@ export class ContextBuilder {
     if (searchResults.length === 0) {
       try {
         const textResults = this.queries.searchNodes(query, {
-          limit: opts.searchLimit,
-          kinds: opts.nodeKinds && opts.nodeKinds.length > 0 ? opts.nodeKinds : undefined,
+          limit: candidateLimit,
+          kinds: nodeKinds,
+          languages: language ? [language] : undefined,
+          includeFiles,
+          includePatterns: pathHint ? [`*${pathHint}*`] : undefined,
         });
-        searchResults = textResults;
+        searchResults = this.rankAndFilterSearchResults(textResults, query, {
+          minScore: opts.minScore,
+          limit: opts.searchLimit,
+          includeFiles,
+          pathHint,
+          language,
+        });
       } catch (error) {
         logWarn('Text search failed', { query, error: String(error) });
         // Return empty results
       }
     }
 
-    // Filter by minimum score
-    const filteredResults = searchResults.filter((r) => r.score >= opts.minScore);
-
     // Add entry points to subgraph
-    for (const result of filteredResults) {
+    for (const result of searchResults) {
       nodes.set(result.node.id, result.node);
       roots.push(result.node.id);
     }
 
     // Traverse from each entry point
-    for (const result of filteredResults) {
+    for (const result of searchResults) {
       const traversalResult = this.traverser.traverseBFS(result.node.id, {
         maxDepth: opts.traversalDepth,
         edgeKinds: opts.edgeKinds && opts.edgeKinds.length > 0 ? opts.edgeKinds : undefined,
-        nodeKinds: opts.nodeKinds && opts.nodeKinds.length > 0 ? opts.nodeKinds : undefined,
+        nodeKinds,
         direction: 'both',
-        limit: Math.ceil(opts.maxNodes / Math.max(1, filteredResults.length)),
+        limit: Math.ceil(opts.maxNodes / Math.max(1, searchResults.length)),
       });
 
       // Merge nodes
       for (const [id, node] of traversalResult.nodes) {
+        if (!includeFiles && node.kind === 'file') continue;
+        if (language && node.language !== language) continue;
         if (!nodes.has(id)) {
           nodes.set(id, node);
         }
@@ -245,11 +296,15 @@ export class ContextBuilder {
       }
     }
 
+    // Remove edges that point to filtered-out nodes
+    const filteredEdges = edges.filter((edge) => nodes.has(edge.source) && nodes.has(edge.target));
+    const filteredRoots = roots.filter((id) => nodes.has(id));
+
     // Trim to max nodes if needed
     if (nodes.size > opts.maxNodes) {
       // Prioritize entry points and their direct neighbors
-      const priorityIds = new Set(roots);
-      for (const edge of edges) {
+      const priorityIds = new Set(filteredRoots);
+      for (const edge of filteredEdges) {
         if (priorityIds.has(edge.source)) {
           priorityIds.add(edge.target);
         }
@@ -276,14 +331,133 @@ export class ContextBuilder {
       }
 
       // Filter edges to only include kept nodes
-      const trimmedEdges = edges.filter(
+      const trimmedEdges = filteredEdges.filter(
         (e) => trimmedNodes.has(e.source) && trimmedNodes.has(e.target)
       );
 
-      return { nodes: trimmedNodes, edges: trimmedEdges, roots };
+      const trimmedRoots = filteredRoots.filter((id) => trimmedNodes.has(id));
+      return { nodes: trimmedNodes, edges: trimmedEdges, roots: trimmedRoots };
     }
 
-    return { nodes, edges, roots };
+    return { nodes, edges: filteredEdges, roots: filteredRoots };
+  }
+
+  private rankAndFilterSearchResults(
+    results: SearchResult[],
+    query: string,
+    options: {
+      minScore: number;
+      limit: number;
+      includeFiles: boolean;
+      pathHint?: string;
+      language?: string;
+    }
+  ): SearchResult[] {
+    const terms = this.extractSearchTerms(query);
+    const deduped = new Map<string, SearchResult>();
+
+    for (const result of results) {
+      if (result.score < options.minScore) continue;
+
+      const node = result.node;
+      if (!options.includeFiles && node.kind === 'file') continue;
+      if (options.language && node.language !== options.language) continue;
+      if (options.pathHint && !node.filePath.toLowerCase().includes(options.pathHint)) continue;
+
+      const existing = deduped.get(node.id);
+      if (!existing || result.score > existing.score) {
+        deduped.set(node.id, result);
+      }
+    }
+
+    return Array.from(deduped.values())
+      .map((result) => {
+        const lexical = this.computeLexicalSignal(result.node, terms);
+        const kindBoost = this.getKindBoost(result.node.kind);
+        const score = result.score * 0.6 + lexical * 0.3 + kindBoost * 0.1;
+        return { ...result, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, options.limit);
+  }
+
+  private computeLexicalSignal(node: Node, terms: string[]): number {
+    if (terms.length === 0) return 0.3;
+
+    const name = node.name.toLowerCase();
+    const qualifiedName = node.qualifiedName.toLowerCase();
+    const filePath = node.filePath.toLowerCase();
+    const fileName = filePath.split('/').pop() ?? '';
+
+    let score = 0;
+    for (const term of terms) {
+      if (name === term || qualifiedName === term) {
+        score += 1.0;
+      } else if (name.startsWith(term) || fileName.startsWith(term)) {
+        score += 0.9;
+      } else if (name.includes(term) || fileName.includes(term)) {
+        score += 0.82;
+      } else if (qualifiedName.includes(term) || filePath.includes(term)) {
+        score += 0.72;
+      } else {
+        score += 0.1;
+      }
+    }
+
+    return score / terms.length;
+  }
+
+  private extractSearchTerms(query: string): string[] {
+    const stopWords = new Set([
+      'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how',
+      'in', 'into', 'is', 'it', 'its', 'of', 'on', 'or', 'that', 'the',
+      'their', 'this', 'to', 'understand', 'with', 'during', 'show', 'me',
+    ]);
+
+    const cleaned = query
+      .toLowerCase()
+      .replace(/[^a-z0-9_./\\-]+/g, ' ')
+      .trim();
+    if (!cleaned) return [];
+
+    const terms = cleaned
+      .split(/\s+/)
+      .map((term) => term.replace(/^[./\\-]+|[./\\-]+$/g, ''))
+      .filter((term) => term.length >= 2)
+      .filter((term) => !stopWords.has(term));
+
+    return Array.from(new Set(terms));
+  }
+
+  private getKindBoost(kind: Node['kind']): number {
+    switch (kind) {
+      case 'function':
+      case 'method':
+      case 'route':
+      case 'component':
+        return 1.0;
+      case 'class':
+      case 'struct':
+      case 'interface':
+      case 'trait':
+      case 'protocol':
+        return 0.92;
+      case 'module':
+      case 'namespace':
+        return 0.84;
+      case 'file':
+        return 0.35;
+      default:
+        return 0.72;
+    }
+  }
+
+  private resolveIncludeFiles(query: string, includeFiles?: boolean): boolean {
+    if (typeof includeFiles === 'boolean') return includeFiles;
+
+    const trimmed = query.trim();
+    if (!trimmed) return false;
+    return /[\\/]/.test(trimmed) || /\.[a-z0-9]{1,8}$/i.test(trimmed);
   }
 
   /**

@@ -23,7 +23,7 @@ import { logDebug } from '../errors';
  * Progress callback for indexing operations
  */
 export interface IndexProgress {
-  phase: 'scanning' | 'parsing' | 'storing' | 'resolving';
+  phase: 'scanning' | 'indexing' | 'resolving';
   current: number;
   total: number;
   currentFile?: string;
@@ -278,14 +278,6 @@ export class ExtractionOrchestrator {
 
       const filePath = files[i]!;
       
-      // Report parsing progress
-      onProgress?.({
-        phase: 'parsing',
-        current: i + 1,
-        total,
-        currentFile: filePath,
-      });
-
       const fileStart = Date.now();
       const result = await this.indexFile(filePath);
       const parseTime = Date.now() - fileStart;
@@ -301,17 +293,17 @@ export class ExtractionOrchestrator {
         filesIndexed++;
         totalNodes += result.nodes.length;
         totalEdges += result.edges.length;
-        
-        // Report storing progress after DB write
-        onProgress?.({
-          phase: 'storing',
-          current: filesIndexed,
-          total: files.length,
-          currentFile: filePath,
-        });
       } else if (result.errors.length === 0) {
         filesSkipped++;
       }
+      
+      // Report progress after processing each file
+      onProgress?.({
+        phase: 'indexing',
+        current: i + 1,
+        total,
+        currentFile: filePath,
+      });
     }
     
     // Note: storing time is included in parsing time above since indexFile() includes DB writes
@@ -580,7 +572,7 @@ export class ExtractionOrchestrator {
     for (let i = 0; i < filesToIndex.length; i++) {
       const filePath = filesToIndex[i]!;
       onProgress?.({
-        phase: 'parsing',
+        phase: 'indexing',
         current: i + 1,
         total,
         currentFile: filePath,

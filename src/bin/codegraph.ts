@@ -138,20 +138,46 @@ function progressBar(current: number, total: number, width: number = 30): string
 /**
  * Print a progress update (overwrites current line)
  */
+let lastPhase: string | null = null;
+
 function printProgress(progress: IndexProgress): void {
   const phaseNames: Record<string, string> = {
     scanning: 'Scanning files',
-    parsing: 'Parsing code',
-    storing: 'Storing data',
+    indexing: 'Indexing files',
     resolving: 'Resolving refs',
   };
 
   const phaseName = phaseNames[progress.phase] || progress.phase;
-  const bar = progressBar(progress.current, progress.total);
-  const file = progress.currentFile ? chalk.dim(` ${progress.currentFile}`) : '';
+  
+  // Print newline when phase changes to avoid overlapping progress bars
+  if (lastPhase !== null && lastPhase !== progress.phase) {
+    process.stdout.write('\n');
+  }
+  lastPhase = progress.phase;
 
-  // Clear line and print progress
-  process.stdout.write(`\r${chalk.cyan(phaseName)}: ${bar}${file}`.padEnd(100));
+  // For scanning phase, show count instead of percentage (total is unknown during scan)
+  let display: string;
+  if (progress.phase === 'scanning') {
+    display = `found ${formatNumber(progress.current)}`;
+  } else {
+    const bar = progressBar(progress.current, progress.total);
+    display = bar;
+  }
+  
+  // Truncate file path if too long to prevent line wrapping
+  let fileName = '';
+  if (progress.currentFile) {
+    const maxFileLen = 60;
+    fileName = progress.currentFile.length > maxFileLen 
+      ? '...' + progress.currentFile.slice(-maxFileLen)
+      : progress.currentFile;
+  }
+  const file = fileName ? chalk.dim(` ${fileName}`) : '';
+
+  // Clear entire line before printing to avoid artifacts
+  const terminalWidth = process.stdout.columns || 120;
+  process.stdout.write('\r' + ' '.repeat(terminalWidth) + '\r');
+  process.stdout.write(`${chalk.cyan(phaseName)}: ${display}${file}`);
 }
 
 /**
@@ -229,17 +255,31 @@ program
       if (options.index) {
         console.log('\nIndexing project...\n');
 
+        const startTime = Date.now();
         const result = await cg.indexAll({
           onProgress: printProgress,
         });
+        const totalTime = Date.now() - startTime;
 
-        // Clear progress line
-        process.stdout.write('\r' + ' '.repeat(100) + '\r');
+        // Print newline after progress bars (don't clear them)
+        console.log();
 
         if (result.success) {
-          success(`Indexed ${formatNumber(result.filesIndexed)} files`);
-          info(`Created ${formatNumber(result.nodesCreated)} nodes and ${formatNumber(result.edgesCreated)} edges`);
-          info(`Completed in ${formatDuration(result.durationMs)}`);
+          // Show timing breakdown
+          if (result.timing) {
+            if (result.timing.scanningMs > 0) {
+              info(`Scanning: ${formatDuration(result.timing.scanningMs)}`);
+            }
+            if (result.timing.parsingMs > 0) {
+              info(`Extraction: ${formatDuration(result.timing.parsingMs)}`);
+            }
+            if (result.timing.resolvingMs > 0) {
+              info(`Resolution: ${formatDuration(result.timing.resolvingMs)}`);
+            }
+            info(`Total: ${formatDuration(totalTime)}`);
+          } else {
+            info(`Completed in ${formatDuration(totalTime)}`);
+          }
         } else {
           warn(`Indexing completed with ${result.errors.length} errors`);
         }
@@ -331,23 +371,36 @@ program
         }
       }
 
+      const startTime = Date.now();
       const result = await cg.indexAll({
         onProgress: options.quiet ? undefined : printProgress,
       });
+      const totalTime = Date.now() - startTime;
 
-      // Clear progress line
+      // Print newline after progress bars (don't clear them)
       if (!options.quiet) {
-        process.stdout.write('\r' + ' '.repeat(100) + '\r');
+        console.log();
       }
 
       if (result.success) {
         if (!options.quiet) {
-          success(`Indexed ${formatNumber(result.filesIndexed)} files`);
-          info(`Created ${formatNumber(result.nodesCreated)} nodes and ${formatNumber(result.edgesCreated)} edges`);
-          info(`Completed in ${formatDuration(result.durationMs)}`);
+          // Show timing breakdown
+          if (result.timing) {
+            if (result.timing.scanningMs > 0) {
+              info(`Scanning: ${formatDuration(result.timing.scanningMs)}`);
+            }
+            if (result.timing.parsingMs > 0) {
+              info(`Extraction: ${formatDuration(result.timing.parsingMs)}`);
+            }
+            if (result.timing.resolvingMs > 0) {
+              info(`Resolution: ${formatDuration(result.timing.resolvingMs)}`);
+            }
+            info(`Total: ${formatDuration(totalTime)}`);
+          } else {
+            info(`Completed in ${formatDuration(totalTime)}`);
+          }
           
-          // Note: indexAll() automatically calls resolveReferences() internally
-          // Show final statistics
+          // Show final statistics after resolution
           console.log();
           displayIndexStats(cg.getStats());
         }

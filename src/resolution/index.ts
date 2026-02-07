@@ -189,6 +189,9 @@ export class ReferenceResolver {
     const { getDatabasePath } = await import('../db');
     const dbPath = getDatabasePath(this.projectRoot);
     
+    // Track progress per worker
+    const workerProgress = new Array(chunks.length).fill(0);
+    
     const workers = chunks.map((chunk, idx) => {
       return new Promise<ResolutionResult>((resolve, reject) => {
         const worker = new Worker(workerPath, {
@@ -199,8 +202,20 @@ export class ReferenceResolver {
           },
         });
 
-        worker.on('message', (result: ResolutionResult) => {
-          resolve(result);
+        worker.on('message', (msg: any) => {
+          if (msg.type === 'progress') {
+            // Track this worker's progress
+            workerProgress[idx] = msg.current;
+            
+            // Sum progress across all workers
+            const totalProcessed = workerProgress.reduce((sum, val) => sum + val, 0);
+            
+            if (onProgress) {
+              onProgress(totalProcessed, unresolvedRefs.length);
+            }
+          } else if (msg.type === 'result') {
+            resolve(msg.data);
+          }
         });
 
         worker.on('error', reject);
@@ -212,7 +227,7 @@ export class ReferenceResolver {
       });
     });
 
-    // Wait for all workers
+    // Wait for all workers (progress is reported via messages)
     const results = await Promise.all(workers);
 
     // Merge results
@@ -245,10 +260,10 @@ export class ReferenceResolver {
   /**
    * Resolve all unresolved references (single-threaded)
    */
-  resolveAll(
+  async resolveAll(
     unresolvedRefs: UnresolvedReference[],
     onProgress?: (current: number, total: number) => void
-  ): ResolutionResult {
+  ): Promise<ResolutionResult> {
     // Pre-load symbol caches for fast lookups during bulk resolution
     this.warmCaches();
     
@@ -291,10 +306,14 @@ export class ReferenceResolver {
         unresolved.push(ref);
       }
 
-      // Report progress every 100 refs (or adjust frequency)
+      // Report progress every 10 refs and yield to event loop for responsive updates
       current++;
-      if (onProgress && (current % 100 === 0 || current === total)) {
-        onProgress(current, total);
+      if (current % 10 === 0 || current === total) {
+        if (onProgress) {
+          onProgress(current, total);
+        }
+        // Yield to event loop to allow worker messages to be sent
+        await new Promise(resolve => setImmediate(resolve));
       }
     }
     

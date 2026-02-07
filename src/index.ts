@@ -380,12 +380,30 @@ export class CodeGraph {
 
       // Resolve references to create call/import/extends edges
       if (result.success && result.filesIndexed > 0) {
-        options.onProgress?.({
-          phase: 'resolving',
-          current: 0,
-          total: 1,
-        });
-        this.resolveReferences();
+        const resolutionStart = Date.now();
+        
+        // Wrap the progress callback to convert from (current, total) to IndexProgress format
+        const resolutionProgress = (current: number, total: number) => {
+          options.onProgress?.({
+            phase: 'resolving',
+            current,
+            total,
+          });
+        };
+        await this.resolveReferences(undefined, resolutionProgress);
+        
+        // Add resolution timing to result
+        const resolutionTime = Date.now() - resolutionStart;
+        if (result.timing) {
+          result.timing.resolvingMs = resolutionTime;
+        } else {
+          result.timing = {
+            scanningMs: 0,
+            parsingMs: 0,
+            storingMs: 0,
+            resolvingMs: resolutionTime,
+          };
+        }
       }
 
       return result;

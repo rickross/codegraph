@@ -29,11 +29,24 @@ const queries = new QueryBuilder(db);
 const resolver = new ReferenceResolver(projectRoot, queries);
 resolver.initialize();
 
-// Resolve the chunk of refs
-const result = resolver.resolveAll(refs);
+// Resolve the chunk of refs with progress reporting
+const progressCallback = (current: number, total: number) => {
+  parentPort!.postMessage({
+    type: 'progress',
+    current,
+    total,
+  });
+};
 
-// Send results back to main thread
-parentPort.postMessage(result);
+(async () => {
+  const result = await resolver.resolveAll(refs, progressCallback);
 
-// Close DB connection (workers should clean up after themselves)
-db.close();
+  // Send final results back to main thread
+  parentPort!.postMessage({
+    type: 'result',
+    data: result,
+  });
+  
+  // Close DB connection
+  db.close();
+})();

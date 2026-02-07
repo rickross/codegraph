@@ -256,31 +256,47 @@ export class MCPServer {
           this.toolHandler = null;
         }
 
-        // Initialize new project
-        await this.initializeCodeGraph(newPath);
+        // Set the project path
+        this.projectPath = newPath;
 
-        if (this.initError) {
-          this.transport.sendError(
-            request.id,
-            ErrorCodes.InternalError,
-            this.initError
-          );
-          return;
+        // Try to open if already initialized
+        const isInitialized = CodeGraph.isInitialized(newPath);
+        if (isInitialized) {
+          try {
+            this.cg = await CodeGraph.open(newPath);
+            this.toolHandler = new ToolHandler(this.cg);
+            this.initError = null;
+
+            // Get status of the newly set root
+            const status = await this.cg.getStats();
+            const result = {
+              content: [{
+                type: 'text' as const,
+                text: `Successfully switched to root: ${this.projectPath}\n\n` +
+                      `**Files indexed:** ${status.fileCount}\n` +
+                      `**Total nodes:** ${status.nodeCount}\n` +
+                      `**Total edges:** ${status.edgeCount}\n` +
+                      `**Database size:** ${(status.dbSizeBytes / 1024 / 1024).toFixed(2)} MB`
+              }]
+            };
+            this.transport.sendResult(request.id, result);
+          } catch (err) {
+            this.transport.sendError(
+              request.id,
+              ErrorCodes.InternalError,
+              `Failed to open CodeGraph: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        } else {
+          // Not initialized yet - that's OK, user can call init next
+          const result = {
+            content: [{
+              type: 'text' as const,
+              text: `Root set to: ${newPath}\n\nCodeGraph not initialized yet. Run codegraph_init to initialize it.`
+            }]
+          };
+          this.transport.sendResult(request.id, result);
         }
-
-        // Get status of the newly set root
-        const status = await this.cg!.getStats();
-        const result = {
-          content: [{
-            type: 'text' as const,
-            text: `Successfully switched to root: ${this.projectPath}\n\n` +
-                  `**Files indexed:** ${status.fileCount}\n` +
-                  `**Total nodes:** ${status.nodeCount}\n` +
-                  `**Total edges:** ${status.edgeCount}\n` +
-                  `**Database size:** ${(status.dbSizeBytes / 1024 / 1024).toFixed(2)} MB`
-          }]
-        };
-        this.transport.sendResult(request.id, result);
         return;
       } catch (error) {
         this.transport.sendError(
@@ -339,7 +355,10 @@ export class MCPServer {
 
         // Open current root and index it
         const cg = await CodeGraph.open(this.projectPath);
-        const indexResult = await cg.indexAll();
+        await cg.indexAll();
+        
+        // Get final stats AFTER resolution completes
+        const stats = cg.getStats();
         await cg.close();
 
         // Reinitialize the current instance so it's ready to use
@@ -348,7 +367,11 @@ export class MCPServer {
         const result = {
           content: [{
             type: 'text' as const,
-            text: `Successfully indexed ${this.projectPath}\n\nIndexed ${indexResult.filesIndexed} files, created ${indexResult.nodesCreated} nodes and ${indexResult.edgesCreated} edges`
+            text: `Successfully indexed ${this.projectPath}\n\n` +
+                  `**Files indexed:** ${stats.fileCount}\n` +
+                  `**Total nodes:** ${stats.nodeCount}\n` +
+                  `**Total edges:** ${stats.edgeCount}\n` +
+                  `**Database size:** ${(stats.dbSizeBytes / 1024 / 1024).toFixed(2)} MB`
           }]
         };
         this.transport.sendResult(request.id, result);
@@ -414,12 +437,12 @@ export class MCPServer {
         this.cg.uninitialize();
         this.cg = null;
         this.toolHandler = null;
-        this.projectPath = null;
+        // Keep this.projectPath set so user can immediately re-init without set_root
 
         const result = {
           content: [{
             type: 'text' as const,
-            text: `Successfully removed CodeGraph from ${rootPath}\n\nThe .codegraph/ directory has been deleted.`
+            text: `Successfully removed CodeGraph from ${rootPath}\n\nThe .codegraph/ directory has been deleted.\n\nRoot is still set to: ${rootPath}\nYou can now call codegraph_init to reinitialize.`
           }]
         };
         this.transport.sendResult(request.id, result);

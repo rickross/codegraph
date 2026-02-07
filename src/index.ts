@@ -48,13 +48,15 @@ import {
   ReferenceResolver,
   createResolver,
   ResolutionResult,
+  ResolvedRef,
+  UnresolvedRef,
 } from './resolution';
 import { GraphTraverser, GraphQueryManager } from './graph';
 import { VectorManager, createVectorManager, EmbeddingProgress } from './vectors';
 import { ContextBuilder, createContextBuilder } from './context';
 import { GitHooksManager, createGitHooksManager, HookInstallResult, HookRemoveResult } from './sync';
 import { Mutex } from './utils';
-import { ScipImporter } from './scip';
+import { ScipImporter, ScipResolvedReference } from './scip';
 import { buildVersion } from './version';
 
 // Re-export types for consumers
@@ -411,6 +413,7 @@ export class CodeGraph {
   async indexAll(options: IndexOptions = {}): Promise<IndexResult> {
     return this.indexMutex.withLock(async () => {
       const result = await this.orchestrator.indexAll(options.onProgress, options.signal);
+      const preparedScipPath = result.success ? this.prepareScipIndexPath(options) : null;
 
       // Resolve references to create call/import/extends edges
       if (result.success && result.filesIndexed > 0) {
@@ -424,7 +427,11 @@ export class CodeGraph {
             total,
           });
         };
-        await this.resolveReferences(Math.max(1, os.cpus().length - 1), resolutionProgress);
+        await this.resolveReferences(
+          Math.max(1, os.cpus().length - 1),
+          resolutionProgress,
+          preparedScipPath ?? undefined
+        );
         
         // Add resolution timing to result
         const resolutionTime = Date.now() - resolutionStart;
@@ -444,7 +451,7 @@ export class CodeGraph {
         this.queries.setProjectMetadataIfMissing('first_indexed_by_version', CodeGraph.RUNTIME_VERSION);
         this.queries.setProjectMetadataIfMissing('first_indexed_at', String(Date.now()));
 
-        await this.runScipPipeline(options);
+        await this.runScipPipeline(options, preparedScipPath);
       }
 
       return result;
@@ -470,11 +477,16 @@ export class CodeGraph {
   async sync(options: IndexOptions = {}): Promise<SyncResult> {
     return this.indexMutex.withLock(async () => {
       const result = await this.orchestrator.sync(options.onProgress);
+      const preparedScipPath = this.prepareScipIndexPath(options);
 
       // Resolve references if files were updated
       // Cache optimization makes full resolution fast even with 20K+ refs
       if (result.filesAdded > 0 || result.filesModified > 0) {
-        await this.resolveReferences();
+        await this.resolveReferences(
+          Math.max(1, os.cpus().length - 1),
+          undefined,
+          preparedScipPath ?? undefined
+        );
         this.queries.setProjectMetadataIfMissing('first_indexed_by_version', CodeGraph.RUNTIME_VERSION);
         this.queries.setProjectMetadataIfMissing('first_indexed_at', String(Date.now()));
       }
@@ -482,7 +494,7 @@ export class CodeGraph {
       this.queries.setProjectMetadata('last_synced_by_version', CodeGraph.RUNTIME_VERSION);
       this.queries.setProjectMetadata('last_synced_at', String(Date.now()));
 
-      await this.runScipPipeline(options);
+      await this.runScipPipeline(options, preparedScipPath);
 
       return result;
     });
@@ -507,7 +519,15 @@ export class CodeGraph {
     return options.useScip ?? this.config.enableScip;
   }
 
-  private async runScipPipeline(options: IndexOptions): Promise<void> {
+  private prepareScipIndexPath(options: IndexOptions): string | null {
+    if (!this.shouldUseScip(options)) {
+      return null;
+    }
+
+    return this.resolveOrGenerateScipIndexPath(options);
+  }
+
+  private async runScipPipeline(options: IndexOptions, preparedScipPath?: string | null): Promise<void> {
     if (!this.shouldUseScip(options)) {
       return;
     }
@@ -521,10 +541,17 @@ export class CodeGraph {
       });
     };
 
-    report(1, 4, 'Locating/generating SCIP index');
-    const scipPath = this.resolveOrGenerateScipIndexPath(options, (stage) => {
-      report(2, 4, stage);
-    });
+    let scipPath = preparedScipPath ?? null;
+    if (!scipPath) {
+      report(1, 4, 'Locating/generating SCIP index');
+      scipPath = this.resolveOrGenerateScipIndexPath(options, (stage) => {
+        report(2, 4, stage);
+      });
+    } else {
+      report(1, 4, `Using ${path.basename(scipPath)}`);
+      report(2, 4, 'SCIP index ready');
+    }
+
     if (!scipPath) {
       report(4, 4, 'No SCIP index available');
       return;
@@ -750,7 +777,8 @@ export class CodeGraph {
    */
   async resolveReferences(
     numWorkers: number = Math.max(1, os.cpus().length - 1),
-    onProgress?: (current: number, total: number) => void
+    onProgress?: (current: number, total: number) => void,
+    scipIndexPath?: string
   ): Promise<ResolutionResult> {
     // Get all unresolved references from the database
     const unresolvedRefs = this.queries.getUnresolvedReferences();
@@ -768,14 +796,62 @@ export class CodeGraph {
       };
     }
 
-    // Resolve refs first, then mutate edges in the main thread.
-    const result = await this.resolver.resolveAllParallel(
-      unresolvedRefs,
-      Math.max(1, Math.floor(numWorkers)),
-      onProgress
-    );
+    let refsForHeuristic = unresolvedRefs;
+    let scipResolvedRefs: ResolvedRef[] = [];
 
-    const edges = this.resolver.createEdges(result.resolved);
+    // SCIP-first pass: resolve what we can with high-confidence semantic data,
+    // then send only the remainder through heuristic resolvers.
+    if (scipIndexPath) {
+      try {
+        const importer = new ScipImporter(this.projectRoot, this.queries);
+        const scipResult = importer.resolveUnresolvedReferences(scipIndexPath, unresolvedRefs);
+        scipResolvedRefs = scipResult.resolved.map((r) => this.toResolvedRef(r));
+        refsForHeuristic = scipResult.unresolved;
+      } catch {
+        // Best-effort path: if SCIP parsing/matching fails, continue with heuristics.
+        scipResolvedRefs = [];
+        refsForHeuristic = unresolvedRefs;
+      }
+    }
+
+    // Resolve remaining refs with existing strategies.
+    const heuristicResult = refsForHeuristic.length > 0
+      ? await this.resolver.resolveAllParallel(
+          refsForHeuristic,
+          Math.max(1, Math.floor(numWorkers)),
+          onProgress
+        )
+      : {
+          resolved: [],
+          unresolved: [],
+          stats: {
+            total: 0,
+            resolved: 0,
+            unresolved: 0,
+            byMethod: {} as Record<string, number>,
+          },
+        };
+    if (refsForHeuristic.length === 0 && onProgress) {
+      onProgress(unresolvedRefs.length, unresolvedRefs.length);
+    }
+
+    const combinedByMethod: Record<string, number> = { ...heuristicResult.stats.byMethod };
+    if (scipResolvedRefs.length > 0) {
+      combinedByMethod.scip = (combinedByMethod.scip || 0) + scipResolvedRefs.length;
+    }
+
+    const combinedResult: ResolutionResult = {
+      resolved: [...scipResolvedRefs, ...heuristicResult.resolved],
+      unresolved: heuristicResult.unresolved,
+      stats: {
+        total: unresolvedRefs.length,
+        resolved: scipResolvedRefs.length + heuristicResult.stats.resolved,
+        unresolved: heuristicResult.stats.unresolved,
+        byMethod: combinedByMethod,
+      },
+    };
+
+    const edges = this.resolver.createEdges(combinedResult.resolved);
 
     // Deduplicate edges before insertion
     // Key: source|target|kind|line|col|metadata
@@ -812,7 +888,27 @@ export class CodeGraph {
       this.queries.insertEdges(dedupedEdges);
     }
     
-    return result;
+    return combinedResult;
+  }
+
+  private toResolvedRef(match: ScipResolvedReference): ResolvedRef {
+    const original: UnresolvedRef = {
+      fromNodeId: match.reference.fromNodeId,
+      referenceName: match.reference.referenceName,
+      referenceKind: match.reference.referenceKind,
+      line: match.reference.line,
+      column: match.reference.column,
+      filePath: match.reference.filePath,
+      language: match.reference.language,
+      candidates: match.reference.candidates,
+    };
+
+    return {
+      original,
+      targetNodeId: match.targetNodeId,
+      confidence: match.confidence,
+      resolvedBy: 'scip',
+    };
   }
 
   /**

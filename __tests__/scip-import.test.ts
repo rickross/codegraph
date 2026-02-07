@@ -216,4 +216,61 @@ describe('SCIP import', () => {
     cg.destroy();
     cleanupTempDir(tempDir);
   });
+
+  it('uses SCIP-first resolution for refs skipped by heuristic built-in filters', async () => {
+    const tempDir = createTempDir();
+    const srcDir = path.join(tempDir, 'src');
+    fs.mkdirSync(srcDir, { recursive: true });
+
+    const source = [
+      'export function useState() {',
+      '  return 1;',
+      '}',
+      '',
+      'export function caller() {',
+      '  return useState();',
+      '}',
+      '',
+    ].join('\n');
+    fs.writeFileSync(path.join(srcDir, 'example.ts'), source, 'utf-8');
+
+    const scipPayload = {
+      documents: [
+        {
+          relative_path: 'src/example.ts',
+          occurrences: [
+            { symbol: 'scip-typescript npm test 0.0.0 src/example.ts/useState().', range: [0, 16, 24], symbol_roles: 1 },
+            { symbol: 'scip-typescript npm test 0.0.0 src/example.ts/caller().', range: [4, 16, 22], symbol_roles: 1 },
+            { symbol: 'scip-typescript npm test 0.0.0 src/example.ts/useState().', range: [5, 9, 17], symbol_roles: 0 },
+          ],
+        },
+      ],
+    };
+    fs.writeFileSync(path.join(tempDir, 'index.scip.json'), JSON.stringify(scipPayload), 'utf-8');
+
+    const cg = await CodeGraph.init(tempDir);
+    await cg.indexAll({ useScip: false });
+
+    const callerNode = cg.searchNodes('caller', { kinds: ['function'], limit: 1 })[0]?.node;
+    const useStateNode = cg.searchNodes('useState', { kinds: ['function'], limit: 1 })[0]?.node;
+    expect(callerNode).toBeDefined();
+    expect(useStateNode).toBeDefined();
+
+    const beforeEdges = cg
+      .getOutgoingEdges(callerNode!.id)
+      .filter((edge) => edge.kind === 'calls' && edge.target === useStateNode!.id);
+    expect(beforeEdges).toHaveLength(0);
+
+    const resolution = await cg.resolveReferences(1, undefined, 'index.scip.json');
+    expect(resolution.stats.byMethod.scip).toBeGreaterThan(0);
+
+    const afterEdges = cg
+      .getOutgoingEdges(callerNode!.id)
+      .filter((edge) => edge.kind === 'calls' && edge.target === useStateNode!.id);
+    expect(afterEdges.length).toBeGreaterThan(0);
+    expect((afterEdges[0]!.metadata as { resolvedBy?: string }).resolvedBy).toBe('scip');
+
+    cg.destroy();
+    cleanupTempDir(tempDir);
+  });
 });

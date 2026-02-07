@@ -8,7 +8,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { QueryBuilder } from '../db/queries';
-import type { Edge, Node, ScipImportProgress, ScipImportResult } from '../types';
+import type {
+  Edge,
+  Node,
+  ScipImportProgress,
+  ScipImportResult,
+  UnresolvedReference,
+} from '../types';
 
 const SCIP_SYMBOL_ROLE_DEFINITION = 1;
 const SCIP_SYMBOL_ROLE_IMPORT = 2;
@@ -41,6 +47,18 @@ interface ScipRange {
 type ProgressCallback = (progress: ScipImportProgress) => void;
 
 const LOCAL_SYMBOL_PREFIX = /^local\s+\d+$/;
+const SCIP_RESOLUTION_COLUMN_WINDOW = 12;
+
+export interface ScipResolvedReference {
+  reference: UnresolvedReference;
+  targetNodeId: string;
+  confidence: number;
+}
+
+export interface ScipResolutionResult {
+  resolved: ScipResolvedReference[];
+  unresolved: UnresolvedReference[];
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -154,6 +172,44 @@ function parseDocuments(input: unknown): ScipDocument[] {
   }
 
   return [];
+}
+
+function unresolvedReferenceKey(ref: UnresolvedReference): string {
+  return `${ref.fromNodeId}|${ref.referenceName}|${ref.referenceKind}|${ref.line}|${ref.column}|${ref.filePath}`;
+}
+
+function simplifyReferenceName(name: string): string {
+  const trimmed = name.trim();
+  const token = trimmed.split(/\.|::|#/).pop() ?? trimmed;
+  return token.replace(/\(\)$/g, '').trim();
+}
+
+function extractSymbolName(symbol: string): string | null {
+  const trimmed = symbol.trim();
+  if (!trimmed || LOCAL_SYMBOL_PREFIX.test(trimmed)) return null;
+
+  let token = trimmed;
+  const lastSlash = token.lastIndexOf('/');
+  if (lastSlash >= 0) {
+    token = token.slice(lastSlash + 1);
+  } else if (token.includes(' ')) {
+    token = token.split(/\s+/).pop() ?? token;
+  }
+
+  token = token
+    .replace(/[#.;]+$/g, '')
+    .replace(/\(\)$/g, '')
+    .replace(/\.$/g, '')
+    .trim();
+
+  return token.length > 0 ? token : null;
+}
+
+function referenceKindCompatible(referenceKind: Edge['kind'], isImport: boolean): boolean {
+  if (isImport) {
+    return referenceKind === 'imports';
+  }
+  return referenceKind !== 'imports';
 }
 
 export class ScipImporter {
@@ -337,6 +393,113 @@ export class ScipImporter {
       referencesMapped,
       importedEdges: importedEdges.length,
     };
+  }
+
+  resolveUnresolvedReferences(
+    indexPath: string,
+    unresolvedRefs: UnresolvedReference[]
+  ): ScipResolutionResult {
+    if (unresolvedRefs.length === 0) {
+      return { resolved: [], unresolved: [] };
+    }
+
+    const resolvedPath = path.isAbsolute(indexPath)
+      ? indexPath
+      : path.resolve(this.projectRoot, indexPath);
+    const raw = fs.readFileSync(resolvedPath, 'utf-8');
+    const payload = JSON.parse(raw) as ScipIndexPayload | unknown;
+    const documents = parseDocuments(payload);
+
+    const symbolDefinitions = new Map<string, Set<string>>();
+
+    // Pass 1: map definitions to concrete graph node IDs.
+    for (const document of documents) {
+      const rawPath = document.relative_path ?? document.relativePath;
+      if (!rawPath || !Array.isArray(document.occurrences)) continue;
+      const filePath = normalizeDocumentPath(this.projectRoot, rawPath);
+      const nodes = this.getNodesForFile(filePath);
+
+      for (const occurrence of document.occurrences) {
+        if (!occurrence.symbol || !Array.isArray(occurrence.range)) continue;
+        if (!isDefinitionOccurrence(occurrence)) continue;
+
+        const range = normalizeScipRange(occurrence.range);
+        if (!range) continue;
+
+        const definitionNode = pickBestContainingNode(nodes, range);
+        if (!definitionNode) continue;
+
+        const symbolKey = this.symbolKeyForDocument(occurrence.symbol, filePath);
+        const existing = symbolDefinitions.get(symbolKey) ?? new Set<string>();
+        existing.add(definitionNode.id);
+        symbolDefinitions.set(symbolKey, existing);
+      }
+    }
+
+    const refsByFileLine = new Map<string, UnresolvedReference[]>();
+    for (const ref of unresolvedRefs) {
+      const key = `${ref.filePath}|${ref.line}`;
+      const bucket = refsByFileLine.get(key) ?? [];
+      bucket.push(ref);
+      refsByFileLine.set(key, bucket);
+    }
+
+    const matched = new Set<string>();
+    const resolved: ScipResolvedReference[] = [];
+
+    // Pass 2: map occurrences to unresolved refs in the same file/line/source node.
+    for (const document of documents) {
+      const rawPath = document.relative_path ?? document.relativePath;
+      if (!rawPath || !Array.isArray(document.occurrences)) continue;
+      const filePath = normalizeDocumentPath(this.projectRoot, rawPath);
+      const nodes = this.getNodesForFile(filePath);
+
+      for (const occurrence of document.occurrences) {
+        if (!occurrence.symbol || !Array.isArray(occurrence.range)) continue;
+        if (isDefinitionOccurrence(occurrence)) continue;
+
+        const range = normalizeScipRange(occurrence.range);
+        if (!range) continue;
+        const sourceNode = pickBestContainingNode(nodes, range);
+        if (!sourceNode) continue;
+
+        const symbolKey = this.symbolKeyForDocument(occurrence.symbol, filePath);
+        const targets = symbolDefinitions.get(symbolKey);
+        if (!targets || targets.size === 0) continue;
+        const selectedTargets = this.selectTargets(sourceNode, targets);
+        if (selectedTargets.length === 0) continue;
+        const targetNodeId = selectedTargets[0]!;
+
+        const line = range.startLine + 1;
+        const column = range.startColumn;
+        const lineBucket = refsByFileLine.get(`${filePath}|${line}`);
+        if (!lineBucket || lineBucket.length === 0) continue;
+
+        const symbolName = extractSymbolName(occurrence.symbol);
+        const occurrenceIsImport = isImportOccurrence(occurrence);
+        const candidates = lineBucket.filter((ref) => {
+          if (matched.has(unresolvedReferenceKey(ref))) return false;
+          if (ref.fromNodeId !== sourceNode.id) return false;
+          if (!referenceKindCompatible(ref.referenceKind, occurrenceIsImport)) return false;
+          if (Math.abs(ref.column - column) > SCIP_RESOLUTION_COLUMN_WINDOW) return false;
+          if (!symbolName) return false;
+          return simplifyReferenceName(ref.referenceName) === symbolName;
+        });
+        if (candidates.length === 0) continue;
+
+        candidates.sort((a, b) => Math.abs(a.column - column) - Math.abs(b.column - column));
+        const best = candidates[0]!;
+        matched.add(unresolvedReferenceKey(best));
+        resolved.push({
+          reference: best,
+          targetNodeId,
+          confidence: 0.99,
+        });
+      }
+    }
+
+    const unresolved = unresolvedRefs.filter((ref) => !matched.has(unresolvedReferenceKey(ref)));
+    return { resolved, unresolved };
   }
 
   private getNodesForFile(filePath: string): Node[] {

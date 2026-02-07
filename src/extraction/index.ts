@@ -23,7 +23,7 @@ import { logDebug } from '../errors';
  * Progress callback for indexing operations
  */
 export interface IndexProgress {
-  phase: 'scanning' | 'indexing' | 'resolving';
+  phase: 'scanning' | 'indexing' | 'resolving' | 'scip';
   current: number;
   total: number;
   currentFile?: string;

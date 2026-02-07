@@ -465,8 +465,14 @@ export interface CodeGraphConfig {
   /** Whether to auto-import SCIP semantic data during index/sync when available */
   enableScip: boolean;
 
+  /** Whether to auto-generate SCIP data when none is present */
+  enableScipGeneration: boolean;
+
   /** Candidate SCIP JSON paths (checked in order) */
   scipIndexPaths: string[];
+
+  /** Optional custom command to generate SCIP JSON/binary before import */
+  scipGenerateCommand?: string;
 
   /** Custom symbol patterns to extract */
   customPatterns?: {
@@ -653,6 +659,7 @@ export const DEFAULT_CONFIG: CodeGraphConfig = {
   trackCallSites: true,
   enableEmbeddings: false,
   enableScip: true,
+  enableScipGeneration: true,
   scipIndexPaths: [
     '.codegraph/index.scip.json',
     '.scip/index.scip.json',
@@ -727,6 +734,14 @@ export interface GraphStats {
     lastImportedPath?: string;
     /** Number of edges imported in the most recent SCIP import */
     lastImportedEdges?: number;
+    /** Number of SCIP documents processed in the most recent import */
+    lastDocuments?: number;
+    /** Number of SCIP occurrences scanned in the most recent import */
+    lastOccurrences?: number;
+    /** Most recent SCIP generation metadata */
+    lastGeneratedAt?: number;
+    lastGeneratedBy?: string;
+    lastGenerateError?: string;
   };
 }
 
@@ -746,6 +761,20 @@ export interface ScipImportResult {
   referencesMapped: number;
   /** Number of edges inserted into the graph */
   importedEdges: number;
+}
+
+/**
+ * Progress update while importing SCIP data.
+ */
+export interface ScipImportProgress {
+  /** Import stage label */
+  phase: 'loading' | 'mapping-definitions' | 'mapping-references' | 'writing-edges' | 'done';
+  /** Progress numerator */
+  current: number;
+  /** Progress denominator */
+  total: number;
+  /** Optional human-readable detail */
+  detail?: string;
 }
 
 // =============================================================================

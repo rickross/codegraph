@@ -8,7 +8,7 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import {
   CodeGraphConfig,
   Node,
@@ -25,6 +25,7 @@ import {
   TaskContext,
   BuildContextOptions,
   FindRelevantContextOptions,
+  ScipImportProgress,
   ScipImportResult,
 } from './types';
 import { DatabaseConnection, getDatabasePath } from './db';
@@ -54,6 +55,7 @@ import { ContextBuilder, createContextBuilder } from './context';
 import { GitHooksManager, createGitHooksManager, HookInstallResult, HookRemoveResult } from './sync';
 import { Mutex } from './utils';
 import { ScipImporter } from './scip';
+import { buildVersion } from './version';
 
 // Re-export types for consumers
 export * from './types';
@@ -90,12 +92,9 @@ export { MCPServer } from './mcp';
  * Priority:
  * 1. CODEGRAPH_BUILD_VERSION (full override)
  * 2. package.json version + optional CODEGRAPH_VERSION_SUFFIX
- * 3. package.json version + git metadata (+g<sha>[.dirty]) when available
+ * 3. package.json version + git metadata (+g<sha>[.dirty[.<utc timestamp>]]) when available
  */
 function getRuntimeVersion(): string {
-  const buildVersion = process.env.CODEGRAPH_BUILD_VERSION?.trim();
-  if (buildVersion) return buildVersion;
-
   const packagePath = path.join(__dirname, '..', 'package.json');
   let baseVersion = 'unknown';
   try {
@@ -106,47 +105,7 @@ function getRuntimeVersion(): string {
   } catch {
     // keep unknown fallback
   }
-
-  const suffix = process.env.CODEGRAPH_VERSION_SUFFIX?.trim();
-  if (suffix) {
-    const normalized = suffix.startsWith('+') || suffix.startsWith('-') ? suffix : `+${suffix}`;
-    return `${baseVersion}${normalized}`;
-  }
-
-  const gitMetadata = getGitMetadata(path.dirname(packagePath));
-  if (!gitMetadata || baseVersion === 'unknown') {
-    return baseVersion;
-  }
-  return `${baseVersion}+${gitMetadata}`;
-}
-
-/**
- * Return git build metadata ("g<sha>" or "g<sha>.dirty") when running in a git checkout.
- */
-function getGitMetadata(repoRoot: string): string | null {
-  if (!fs.existsSync(path.join(repoRoot, '.git'))) {
-    return null;
-  }
-
-  try {
-    const shortSha = execSync('git rev-parse --short HEAD', {
-      cwd: repoRoot,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      encoding: 'utf8',
-    }).trim();
-
-    if (!shortSha) return null;
-
-    const dirty = execSync('git status --porcelain', {
-      cwd: repoRoot,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      encoding: 'utf8',
-    }).trim().length > 0;
-
-    return dirty ? `g${shortSha}.dirty` : `g${shortSha}`;
-  } catch {
-    return null;
-  }
+  return buildVersion(baseVersion, path.dirname(packagePath));
 }
 
 /**
@@ -186,6 +145,9 @@ export interface IndexOptions {
 
   /** Whether to use SCIP import when a configured SCIP index is available */
   useScip?: boolean;
+
+  /** Optional one-off command to generate SCIP data before import */
+  scipGenerateCommand?: string;
 }
 
 /**
@@ -482,12 +444,7 @@ export class CodeGraph {
         this.queries.setProjectMetadataIfMissing('first_indexed_by_version', CodeGraph.RUNTIME_VERSION);
         this.queries.setProjectMetadataIfMissing('first_indexed_at', String(Date.now()));
 
-        if (this.shouldUseScip(options)) {
-          const scipPath = this.resolveConfiguredScipIndexPath();
-          if (scipPath) {
-            await this.importScipUnsafe(scipPath);
-          }
-        }
+        await this.runScipPipeline(options);
       }
 
       return result;
@@ -525,12 +482,7 @@ export class CodeGraph {
       this.queries.setProjectMetadata('last_synced_by_version', CodeGraph.RUNTIME_VERSION);
       this.queries.setProjectMetadata('last_synced_at', String(Date.now()));
 
-      if (this.shouldUseScip(options)) {
-        const scipPath = this.resolveConfiguredScipIndexPath();
-        if (scipPath) {
-          await this.importScipUnsafe(scipPath);
-        }
-      }
+      await this.runScipPipeline(options);
 
       return result;
     });
@@ -542,14 +494,95 @@ export class CodeGraph {
    * This augments existing tree-sitter extraction with high-confidence
    * cross-symbol reference data.
    */
-  async importScip(indexPath: string): Promise<ScipImportResult> {
+  async importScip(
+    indexPath: string,
+    onProgress?: (progress: ScipImportProgress) => void
+  ): Promise<ScipImportResult> {
     return this.indexMutex.withLock(async () => {
-      return this.importScipUnsafe(indexPath);
+      return this.importScipUnsafe(indexPath, onProgress);
     });
   }
 
   private shouldUseScip(options: IndexOptions): boolean {
     return options.useScip ?? this.config.enableScip;
+  }
+
+  private async runScipPipeline(options: IndexOptions): Promise<void> {
+    if (!this.shouldUseScip(options)) {
+      return;
+    }
+
+    const report = (current: number, total: number, currentFile: string) => {
+      options.onProgress?.({
+        phase: 'scip',
+        current,
+        total,
+        currentFile,
+      });
+    };
+
+    report(1, 4, 'Locating/generating SCIP index');
+    const scipPath = this.resolveOrGenerateScipIndexPath(options, (stage) => {
+      report(2, 4, stage);
+    });
+    if (!scipPath) {
+      report(4, 4, 'No SCIP index available');
+      return;
+    }
+
+    report(3, 4, `Importing ${path.basename(scipPath)}`);
+    await this.importScipUnsafe(scipPath, (progress) => {
+      const percent = this.scipImportPercent(progress);
+      const detail = progress.detail?.trim() || progress.phase;
+      report(Math.max(3, Math.min(4, 3 + percent)), 4, detail);
+    });
+    report(4, 4, 'SCIP import complete');
+  }
+
+  private scipImportPercent(progress: ScipImportProgress): number {
+    const safeTotal = Math.max(progress.total, 1);
+    const stageProgress = Math.max(0, Math.min(1, progress.current / safeTotal));
+
+    // Weighted to keep visible movement across all SCIP phases.
+    const stageWeights: Record<ScipImportProgress['phase'], { start: number; span: number }> = {
+      loading: { start: 0, span: 0.1 },
+      'mapping-definitions': { start: 0.1, span: 0.35 },
+      'mapping-references': { start: 0.45, span: 0.4 },
+      'writing-edges': { start: 0.85, span: 0.14 },
+      done: { start: 0.99, span: 0.01 },
+    };
+
+    const stage = stageWeights[progress.phase];
+    return stage.start + (stage.span * stageProgress);
+  }
+
+  private resolveOrGenerateScipIndexPath(
+    options: IndexOptions,
+    onStage?: (stage: string) => void
+  ): string | null {
+    const configuredCommand = options.scipGenerateCommand?.trim() || this.config.scipGenerateCommand?.trim();
+    const existingBeforeGenerate = this.resolveConfiguredScipIndexPath();
+
+    // If user configured a command, run it on each index/sync so SCIP stays fresh.
+    if (configuredCommand) {
+      this.runScipGenerateCommand(configuredCommand, onStage);
+      this.convertScipBinaryToJsonIfPossible(onStage);
+      const afterGenerate = this.resolveConfiguredScipIndexPath();
+      if (afterGenerate) return afterGenerate;
+      return existingBeforeGenerate;
+    }
+
+    // No custom command: use existing SCIP if present.
+    if (existingBeforeGenerate) return existingBeforeGenerate;
+
+    // Best-effort default generation for TypeScript repos when tools are installed.
+    if (this.config.enableScipGeneration) {
+      this.runDefaultScipGeneration(onStage);
+      this.convertScipBinaryToJsonIfPossible(onStage);
+      return this.resolveConfiguredScipIndexPath();
+    }
+
+    return null;
   }
 
   private resolveConfiguredScipIndexPath(): string | null {
@@ -566,9 +599,110 @@ export class CodeGraph {
     return null;
   }
 
-  private async importScipUnsafe(indexPath: string): Promise<ScipImportResult> {
+  private runDefaultScipGeneration(onStage?: (stage: string) => void): void {
+    const hasTypeScriptSignals =
+      fs.existsSync(path.join(this.projectRoot, 'tsconfig.json')) ||
+      fs.existsSync(path.join(this.projectRoot, 'package.json'));
+    if (!hasTypeScriptSignals) return;
+    if (!this.isCommandAvailable('scip-typescript')) return;
+    onStage?.('Running scip-typescript index');
+
+    const run = spawnSync('scip-typescript', ['index'], {
+      cwd: this.projectRoot,
+      stdio: 'ignore',
+      encoding: 'utf8',
+    });
+
+    if (run.status !== 0 && !run.error) {
+      this.queries.setProjectMetadata('scip_last_generate_error', 'scip-typescript exited with non-zero status');
+      return;
+    }
+    if (run.error) {
+      this.queries.setProjectMetadata(
+        'scip_last_generate_error',
+        run.error.message || String(run.error)
+      );
+      return;
+    }
+
+    this.queries.setProjectMetadata('scip_last_generate_error', '');
+    this.queries.setProjectMetadata('scip_last_generated_at', String(Date.now()));
+    this.queries.setProjectMetadata('scip_last_generated_by', 'default:scip-typescript');
+  }
+
+  private runScipGenerateCommand(command: string, onStage?: (stage: string) => void): void {
+    onStage?.(`Running custom SCIP generator: ${command}`);
+    const run = spawnSync(command, {
+      cwd: this.projectRoot,
+      stdio: 'ignore',
+      shell: true,
+      encoding: 'utf8',
+    });
+
+    if (run.status !== 0 && !run.error) {
+      this.queries.setProjectMetadata('scip_last_generate_error', `generate command exited non-zero: ${command}`);
+      return;
+    }
+    if (run.error) {
+      this.queries.setProjectMetadata(
+        'scip_last_generate_error',
+        run.error.message || String(run.error)
+      );
+      return;
+    }
+
+    this.queries.setProjectMetadata('scip_last_generate_error', '');
+    this.queries.setProjectMetadata('scip_last_generated_at', String(Date.now()));
+    this.queries.setProjectMetadata('scip_last_generated_by', `command:${command}`);
+  }
+
+  private convertScipBinaryToJsonIfPossible(onStage?: (stage: string) => void): void {
+    if (this.resolveConfiguredScipIndexPath()) return;
+    if (!this.isCommandAvailable('scip')) return;
+
+    const binaryCandidates = [
+      path.join(this.projectRoot, '.codegraph', 'index.scip'),
+      path.join(this.projectRoot, 'index.scip'),
+      path.join(this.projectRoot, '.scip', 'index.scip'),
+      path.join(this.projectRoot, 'scip', 'index.scip'),
+    ];
+    const binaryPath = binaryCandidates.find((candidate) => fs.existsSync(candidate));
+    if (!binaryPath) return;
+    onStage?.(`Converting ${path.basename(binaryPath)} to JSON`);
+
+    const print = spawnSync('scip', ['print', '--json', binaryPath], {
+      cwd: this.projectRoot,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8',
+      maxBuffer: 128 * 1024 * 1024,
+    });
+
+    if (print.error || print.status !== 0 || !print.stdout) {
+      const errorMessage = print.error?.message || 'scip print failed';
+      this.queries.setProjectMetadata('scip_last_generate_error', errorMessage);
+      return;
+    }
+
+    const jsonPath = path.join(this.projectRoot, '.codegraph', 'index.scip.json');
+    fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
+    fs.writeFileSync(jsonPath, print.stdout, 'utf-8');
+  }
+
+  private isCommandAvailable(command: string): boolean {
+    const probe = spawnSync(command, ['--help'], {
+      cwd: this.projectRoot,
+      stdio: 'ignore',
+      encoding: 'utf8',
+    });
+    return !probe.error;
+  }
+
+  private async importScipUnsafe(
+    indexPath: string,
+    onProgress?: (progress: ScipImportProgress) => void
+  ): Promise<ScipImportResult> {
     const importer = new ScipImporter(this.projectRoot, this.queries);
-    const result = importer.importFromFile(indexPath);
+    const result = importer.importFromFile(indexPath, onProgress);
 
     const importedAt = Date.now();
     this.queries.setProjectMetadata('scip_last_imported_at', String(importedAt));

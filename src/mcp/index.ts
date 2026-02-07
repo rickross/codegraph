@@ -18,9 +18,9 @@
 import CodeGraph from '../index';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
 import { StdioTransport, JsonRpcRequest, JsonRpcNotification, ErrorCodes } from './transport';
 import { tools, ToolHandler, normalizeToolName } from './tools';
+import { buildVersion } from '../version';
 
 /**
  * MCP Server Info
@@ -41,14 +41,9 @@ const PROTOCOL_VERSION = '2024-11-05';
  * Priority:
  * 1. CODEGRAPH_BUILD_VERSION (full override)
  * 2. package.json version + optional CODEGRAPH_VERSION_SUFFIX
- * 3. package.json version + git metadata (+g<sha>[.dirty]) when available
+ * 3. package.json version + git metadata (+g<sha>[.dirty[.<utc timestamp>]]) when available
  */
 function getServerVersion(): string {
-  const buildVersion = process.env.CODEGRAPH_BUILD_VERSION?.trim();
-  if (buildVersion) {
-    return buildVersion;
-  }
-
   const packagePath = path.join(__dirname, '..', '..', 'package.json');
   let baseVersion = '0.0.0';
   try {
@@ -59,50 +54,7 @@ function getServerVersion(): string {
   } catch {
     // Fall back to default version
   }
-
-  const suffix = process.env.CODEGRAPH_VERSION_SUFFIX?.trim();
-  if (suffix) {
-    const normalized = suffix.startsWith('+') || suffix.startsWith('-') ? suffix : `+${suffix}`;
-    return `${baseVersion}${normalized}`;
-  }
-
-  const gitMetadata = getGitMetadata(path.dirname(packagePath));
-  if (!gitMetadata) {
-    return baseVersion;
-  }
-
-  return `${baseVersion}+${gitMetadata}`;
-}
-
-/**
- * Return git build metadata ("g<sha>" or "g<sha>.dirty") when running in a git checkout.
- */
-function getGitMetadata(repoRoot: string): string | null {
-  if (!fs.existsSync(path.join(repoRoot, '.git'))) {
-    return null;
-  }
-
-  try {
-    const shortSha = execSync('git rev-parse --short HEAD', {
-      cwd: repoRoot,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      encoding: 'utf8',
-    }).trim();
-
-    if (!shortSha) {
-      return null;
-    }
-
-    const dirty = execSync('git status --porcelain', {
-      cwd: repoRoot,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      encoding: 'utf8',
-    }).trim().length > 0;
-
-    return dirty ? `g${shortSha}.dirty` : `g${shortSha}`;
-  } catch {
-    return null;
-  }
+  return buildVersion(baseVersion, path.dirname(packagePath));
 }
 
 /**

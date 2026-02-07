@@ -42,12 +42,14 @@ export function validateConfig(config: unknown): config is CodeGraphConfig {
   if (typeof c.trackCallSites !== 'boolean') return false;
   if (typeof c.enableEmbeddings !== 'boolean') return false;
   if (typeof c.enableScip !== 'boolean') return false;
+  if (typeof c.enableScipGeneration !== 'boolean') return false;
   if (!Array.isArray(c.scipIndexPaths)) return false;
 
   // Validate include/exclude are string arrays
   if (!c.include.every((p) => typeof p === 'string')) return false;
   if (!c.exclude.every((p) => typeof p === 'string')) return false;
   if (!c.scipIndexPaths.every((p) => typeof p === 'string')) return false;
+  if (c.scipGenerateCommand !== undefined && typeof c.scipGenerateCommand !== 'string') return false;
 
   // Validate languages
   const validLanguages: Language[] = [
@@ -112,7 +114,9 @@ function mergeConfig(
     trackCallSites: overrides.trackCallSites ?? defaults.trackCallSites,
     enableEmbeddings: overrides.enableEmbeddings ?? defaults.enableEmbeddings,
     enableScip: overrides.enableScip ?? defaults.enableScip,
+    enableScipGeneration: overrides.enableScipGeneration ?? defaults.enableScipGeneration,
     scipIndexPaths: overrides.scipIndexPaths ?? defaults.scipIndexPaths,
+    scipGenerateCommand: overrides.scipGenerateCommand ?? defaults.scipGenerateCommand,
     customPatterns: overrides.customPatterns ?? defaults.customPatterns,
   };
 }

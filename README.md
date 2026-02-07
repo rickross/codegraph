@@ -2,7 +2,7 @@
 
 # 🔮 CodeGraph
 
-### Supercharge Claude Code with Semantic Code Intelligence
+### Supercharge AI Agents with Semantic Code Intelligence
 
 **30% fewer tokens • 25% fewer tool calls • 100% local**
 
@@ -18,7 +18,7 @@
 npx @colbymchenry/codegraph
 ```
 
-<sub>Interactive installer configures Claude Code automatically</sub>
+<sub>Interactive installer configures MCP integration (including Claude Code)</sub>
 
 </div>
 
@@ -26,7 +26,7 @@ npx @colbymchenry/codegraph
 
 ## 🚀 Why CodeGraph?
 
-When you ask Claude Code to work on a complex task, it spawns **Explore agents** that scan your codebase using grep, glob, and file reads. These agents consume tokens with every tool call.
+When AI agents work on complex tasks, they often scan your codebase using grep, glob, and file reads. These agents consume tokens with every tool call.
 
 **CodeGraph gives those agents a semantic knowledge graph** — pre-indexed symbol relationships, call graphs, and code structure. Instead of scanning files, agents query the graph instantly.
 
@@ -66,7 +66,7 @@ We ran the same complex task 3 times with and without CodeGraph:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Claude Code                               │
+│                    AI Agent / MCP Client                         │
 │                                                                  │
 │  "Implement user authentication"                                 │
 │           │                                                      │
@@ -109,7 +109,7 @@ We ran the same complex task 3 times with and without CodeGraph:
 <td width="33%" valign="top">
 
 ### 🧠 Smart Context Building
-One tool call returns everything Claude needs—entry points, related symbols, and code snippets. No more expensive exploration agents.
+One tool call returns everything an agent needs—entry points, related symbols, and code snippets. No more expensive exploration loops.
 
 </td>
 <td width="33%" valign="top">
@@ -470,9 +470,9 @@ node(symbol: "authenticate", includeCode: true)
 
 Check index health and statistics.
 
-### How It Works With Claude Code
+### How It Works With AI Agents
 
-Claude's **Explore agents** use these tools instead of grep/glob/Read for faster exploration:
+AI agents use these tools instead of grep/glob/Read for faster exploration:
 
 | Without CodeGraph | With CodeGraph | Benefit |
 |-------------------|----------------|---------|
@@ -481,7 +481,7 @@ Claude's **Explore agents** use these tools instead of grep/glob/Read for faster
 | Manual file tracing | `callers/callees` | Call graph traversal |
 | Guessing impact | `impact(symbol)` | Know what breaks |
 
-This hybrid approach gives you **~30% fewer tokens** and **~25% fewer tool calls** while letting Claude's native agents handle synthesis.
+This hybrid approach gives you **~30% fewer tokens** and **~25% fewer tool calls** while letting your agent focus on synthesis.
 
 ## 📚 Library Usage
 
@@ -666,7 +666,7 @@ MIT
 
 <div align="center">
 
-**Made for the Claude Code community** 🤖
+**Made for the AI coding community** 🤖
 
 [Report Bug](https://github.com/colbymchenry/codegraph/issues) · [Request Feature](https://github.com/colbymchenry/codegraph/issues)
 

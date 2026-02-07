@@ -16,7 +16,7 @@ import {
 } from '../types';
 import { QueryBuilder } from '../db/queries';
 import { extractFromSource } from './tree-sitter';
-import { detectLanguage, isLanguageSupported } from './grammars';
+import { detectLanguage, isLanguageSupported, getUnavailableGrammarErrors } from './grammars';
 import { logDebug } from '../errors';
 
 /**
@@ -425,11 +425,29 @@ export class ExtractionOrchestrator {
     // Detect language
     const language = detectLanguage(relativePath);
     if (!isLanguageSupported(language)) {
+      if (language === 'unknown') {
+        return {
+          nodes: [],
+          edges: [],
+          unresolvedReferences: [],
+          errors: [],
+          durationMs: 0,
+        };
+      }
+
+      const loadError = getUnavailableGrammarErrors()[language];
       return {
         nodes: [],
         edges: [],
         unresolvedReferences: [],
-        errors: [],
+        errors: [
+          {
+            message: loadError
+              ? `Parser unavailable for ${language}: ${loadError}`
+              : `Parser unavailable for ${language}`,
+            severity: 'warning',
+          },
+        ],
         durationMs: 0,
       };
     }

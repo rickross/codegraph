@@ -25,6 +25,7 @@ import {
   TaskContext,
   BuildContextOptions,
   FindRelevantContextOptions,
+  ScipImportResult,
 } from './types';
 import { DatabaseConnection, getDatabasePath } from './db';
 import { QueryBuilder } from './db/queries';
@@ -52,6 +53,7 @@ import { VectorManager, createVectorManager, EmbeddingProgress } from './vectors
 import { ContextBuilder, createContextBuilder } from './context';
 import { GitHooksManager, createGitHooksManager, HookInstallResult, HookRemoveResult } from './sync';
 import { Mutex } from './utils';
+import { ScipImporter } from './scip';
 
 // Re-export types for consumers
 export * from './types';
@@ -63,6 +65,8 @@ export { detectLanguage, isLanguageSupported, getSupportedLanguages } from './ex
 export { ResolutionResult } from './resolution';
 export { EmbeddingProgress } from './vectors';
 export { HookInstallResult, HookRemoveResult } from './sync';
+export { ScipImportResult } from './types';
+export { ScipImporter } from './scip';
 export {
   CodeGraphError,
   FileError,
@@ -510,6 +514,28 @@ export class CodeGraph {
 
       this.queries.setProjectMetadata('last_synced_by_version', CodeGraph.RUNTIME_VERSION);
       this.queries.setProjectMetadata('last_synced_at', String(Date.now()));
+
+      return result;
+    });
+  }
+
+  /**
+   * Import semantic relationships from a SCIP JSON index.
+   *
+   * This augments existing tree-sitter extraction with high-confidence
+   * cross-symbol reference data.
+   */
+  async importScip(indexPath: string): Promise<ScipImportResult> {
+    return this.indexMutex.withLock(async () => {
+      const importer = new ScipImporter(this.projectRoot, this.queries);
+      const result = importer.importFromFile(indexPath);
+
+      const importedAt = Date.now();
+      this.queries.setProjectMetadata('scip_last_imported_at', String(importedAt));
+      this.queries.setProjectMetadata('scip_last_imported_path', result.indexPath);
+      this.queries.setProjectMetadata('scip_last_imported_edges', String(result.importedEdges));
+      this.queries.setProjectMetadata('scip_last_documents', String(result.documentsParsed));
+      this.queries.setProjectMetadata('scip_last_occurrences', String(result.occurrencesScanned));
 
       return result;
     });

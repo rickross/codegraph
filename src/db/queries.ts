@@ -1228,6 +1228,9 @@ export class QueryBuilder {
     const firstIndexedAtRaw = this.getProjectMetadata('first_indexed_at');
     const lastSyncedByVersion = this.getProjectMetadata('last_synced_by_version');
     const lastSyncedAtRaw = this.getProjectMetadata('last_synced_at');
+    const scipLastImportedAtRaw = this.getProjectMetadata('scip_last_imported_at');
+    const scipLastImportedPath = this.getProjectMetadata('scip_last_imported_path');
+    const scipLastImportedEdgesRaw = this.getProjectMetadata('scip_last_imported_edges');
 
     return {
       nodeCount,
@@ -1243,6 +1246,11 @@ export class QueryBuilder {
         firstIndexedAt: firstIndexedAtRaw ? Number(firstIndexedAtRaw) : undefined,
         lastSyncedByVersion: lastSyncedByVersion || undefined,
         lastSyncedAt: lastSyncedAtRaw ? Number(lastSyncedAtRaw) : undefined,
+      },
+      scipProvenance: {
+        lastImportedAt: scipLastImportedAtRaw ? Number(scipLastImportedAtRaw) : undefined,
+        lastImportedPath: scipLastImportedPath || undefined,
+        lastImportedEdges: scipLastImportedEdgesRaw ? Number(scipLastImportedEdgesRaw) : undefined,
       },
     };
   }

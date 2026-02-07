@@ -705,6 +705,34 @@ export interface GraphStats {
     /** Timestamp when sync most recently ran */
     lastSyncedAt?: number;
   };
+
+  /** SCIP import provenance metadata (if available) */
+  scipProvenance?: {
+    /** Timestamp of the most recent SCIP import */
+    lastImportedAt?: number;
+    /** Source file used for the most recent SCIP import */
+    lastImportedPath?: string;
+    /** Number of edges imported in the most recent SCIP import */
+    lastImportedEdges?: number;
+  };
+}
+
+/**
+ * Result of importing SCIP semantic data.
+ */
+export interface ScipImportResult {
+  /** SCIP JSON file that was processed (absolute path) */
+  indexPath: string;
+  /** Number of documents parsed from the SCIP payload */
+  documentsParsed: number;
+  /** Number of occurrences scanned */
+  occurrencesScanned: number;
+  /** Number of symbol definitions mapped to graph nodes */
+  definitionsMapped: number;
+  /** Number of reference occurrences that found at least one target */
+  referencesMapped: number;
+  /** Number of edges inserted into the graph */
+  importedEdges: number;
 }
 
 // =============================================================================

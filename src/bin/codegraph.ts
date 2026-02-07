@@ -11,6 +11,7 @@
  *   codegraph index [path]       Index all files in the project
  *   codegraph sync [path]        Sync changes since last index
  *   codegraph status [path]      Show index status
+ *   codegraph scip import <file> Import SCIP JSON semantic data
  *   codegraph query <search>     Search for symbols
  *   codegraph context <task>     Build context for a task
  *   codegraph hooks install      Install git hooks
@@ -207,16 +208,31 @@ function displayIndexStats(stats: any): void {
   console.log(`  DB Size:   ${(stats.dbSizeBytes / 1024 / 1024).toFixed(2)} MB`);
 
   const provenance = stats.indexProvenance;
-    if (provenance && (provenance.firstIndexedByVersion || provenance.lastSyncedByVersion)) {
-      console.log();
-      console.log(chalk.bold('Index Provenance:'));
-      if (provenance.firstIndexedByVersion || provenance.firstIndexedAt) {
-        console.log(`  First Indexed: ${formatProvenanceVersion(provenance.firstIndexedByVersion)} (${formatTimestamp(provenance.firstIndexedAt)})`);
-      }
-      if (provenance.lastSyncedByVersion || provenance.lastSyncedAt) {
-        console.log(`  Last Synced:   ${formatProvenanceVersion(provenance.lastSyncedByVersion)} (${formatTimestamp(provenance.lastSyncedAt)})`);
-      }
+  if (provenance && (provenance.firstIndexedByVersion || provenance.lastSyncedByVersion)) {
+    console.log();
+    console.log(chalk.bold('Index Provenance:'));
+    if (provenance.firstIndexedByVersion || provenance.firstIndexedAt) {
+      console.log(`  First Indexed: ${formatProvenanceVersion(provenance.firstIndexedByVersion)} (${formatTimestamp(provenance.firstIndexedAt)})`);
     }
+    if (provenance.lastSyncedByVersion || provenance.lastSyncedAt) {
+      console.log(`  Last Synced:   ${formatProvenanceVersion(provenance.lastSyncedByVersion)} (${formatTimestamp(provenance.lastSyncedAt)})`);
+    }
+  }
+
+  const scip = stats.scipProvenance;
+  if (scip && (scip.lastImportedAt || scip.lastImportedPath || scip.lastImportedEdges !== undefined)) {
+    console.log();
+    console.log(chalk.bold('SCIP Provenance:'));
+    if (scip.lastImportedAt) {
+      console.log(`  Last Imported: ${formatTimestamp(scip.lastImportedAt)}`);
+    }
+    if (scip.lastImportedPath) {
+      console.log(`  Source:        ${scip.lastImportedPath}`);
+    }
+    if (scip.lastImportedEdges !== undefined) {
+      console.log(`  Imported Edges:${String(scip.lastImportedEdges).padStart(12, ' ')}`);
+    }
+  }
 }
 
 /**
@@ -579,6 +595,47 @@ program
   });
 
 /**
+ * codegraph scip import <indexPath>
+ */
+const scipProgram = program
+  .command('scip')
+  .description('SCIP semantic import commands');
+
+scipProgram
+  .command('import <indexPath>')
+  .description('Import SCIP JSON data and augment the graph with high-confidence semantic edges')
+  .option('-p, --path <path>', 'Project path')
+  .action(async (indexPath: string, options: { path?: string }) => {
+    const projectPath = resolveProjectPath(options.path);
+
+    try {
+      if (!CodeGraph.isInitialized(projectPath)) {
+        error(`CodeGraph not initialized in ${projectPath}`);
+        info('Run "codegraph init" first');
+        process.exit(1);
+      }
+
+      const cg = await CodeGraph.open(projectPath);
+      const resolvedIndexPath = path.isAbsolute(indexPath)
+        ? indexPath
+        : path.resolve(projectPath, indexPath);
+
+      console.log(chalk.bold('\nImporting SCIP semantic data...\n'));
+      const result = await cg.importScip(resolvedIndexPath);
+
+      success(`Imported ${formatNumber(result.importedEdges)} semantic edges from SCIP`);
+      info(`SCIP file: ${result.indexPath}`);
+      info(`Documents: ${formatNumber(result.documentsParsed)}, occurrences: ${formatNumber(result.occurrencesScanned)}`);
+      info(`Definitions mapped: ${formatNumber(result.definitionsMapped)}, references mapped: ${formatNumber(result.referencesMapped)}`);
+
+      cg.destroy();
+    } catch (err) {
+      error(`Failed to import SCIP data: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  });
+
+/**
  * codegraph status [path]
  */
 program
@@ -623,6 +680,21 @@ program
         }
         if (provenance.lastSyncedByVersion || provenance.lastSyncedAt) {
           console.log(`  Last Synced:   ${formatProvenanceVersion(provenance.lastSyncedByVersion)} (${formatTimestamp(provenance.lastSyncedAt)})`);
+        }
+        console.log();
+      }
+
+      const scip = stats.scipProvenance;
+      if (scip && (scip.lastImportedAt || scip.lastImportedPath || scip.lastImportedEdges !== undefined)) {
+        console.log(chalk.bold('SCIP Provenance:'));
+        if (scip.lastImportedAt) {
+          console.log(`  Last Imported: ${formatTimestamp(scip.lastImportedAt)}`);
+        }
+        if (scip.lastImportedPath) {
+          console.log(`  Source:        ${scip.lastImportedPath}`);
+        }
+        if (scip.lastImportedEdges !== undefined) {
+          console.log(`  Imported Edges:${String(scip.lastImportedEdges).padStart(12, ' ')}`);
         }
         console.log();
       }

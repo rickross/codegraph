@@ -52,6 +52,7 @@ const TOOL_NAME_ALIASES: Record<string, string> = {
   codegraph_index: 'index',
   codegraph_sync: 'sync',
   codegraph_uninit: 'uninit',
+  codegraph_import_scip: 'import_scip',
 };
 
 export function normalizeToolName(toolName: string): string {
@@ -257,6 +258,20 @@ export const tools: ToolDefinition[] = [
     },
   },
   {
+    name: 'import_scip',
+    description: 'Import SCIP JSON semantic data and augment the graph with high-confidence reference edges.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Absolute path or root-relative path to a SCIP JSON file',
+        },
+      },
+      required: ['path'],
+    },
+  },
+  {
     name: 'status',
     description: 'Get the status of the CodeGraph index, including statistics about indexed files, nodes, and edges.',
     inputSchema: {
@@ -347,6 +362,8 @@ export class ToolHandler {
           return await this.handleImpact(args);
         case 'node':
           return await this.handleNode(args);
+        case 'import_scip':
+          return await this.handleImportScip(args);
         case 'status':
           return await this.handleStatus();
         default:
@@ -1181,6 +1198,30 @@ export class ToolHandler {
   }
 
   /**
+   * Handle codegraph_import_scip
+   */
+  private async handleImportScip(args: Record<string, unknown>): Promise<ToolResult> {
+    const inputPath = args.path as string | undefined;
+    if (!inputPath || inputPath.trim().length === 0) {
+      return this.errorResult('Missing required argument: path');
+    }
+
+    const result = await this.cg.importScip(inputPath.trim());
+    const lines = [
+      '## SCIP Import Complete',
+      '',
+      `- Source: ${result.indexPath}`,
+      `- Documents: ${result.documentsParsed}`,
+      `- Occurrences scanned: ${result.occurrencesScanned}`,
+      `- Definitions mapped: ${result.definitionsMapped}`,
+      `- References mapped: ${result.referencesMapped}`,
+      `- Imported edges: ${result.importedEdges}`,
+    ];
+
+    return this.textResult(this.withRootBanner(lines.join('\n')));
+  }
+
+  /**
    * Handle codegraph_status
    */
   private async handleStatus(): Promise<ToolResult> {
@@ -1205,6 +1246,20 @@ export class ToolHandler {
       }
       if (provenance.lastSyncedByVersion || provenance.lastSyncedAt) {
         lines.push(`- Last synced: ${this.formatProvenanceVersion(provenance.lastSyncedByVersion)} (${this.formatTimestamp(provenance.lastSyncedAt)})`);
+      }
+    }
+
+    const scip = stats.scipProvenance;
+    if (scip && (scip.lastImportedAt || scip.lastImportedPath || scip.lastImportedEdges !== undefined)) {
+      lines.push('', '### SCIP Provenance:');
+      if (scip.lastImportedAt) {
+        lines.push(`- Last imported: ${this.formatTimestamp(scip.lastImportedAt)}`);
+      }
+      if (scip.lastImportedPath) {
+        lines.push(`- Source: ${scip.lastImportedPath}`);
+      }
+      if (scip.lastImportedEdges !== undefined) {
+        lines.push(`- Imported edges: ${scip.lastImportedEdges}`);
       }
     }
 

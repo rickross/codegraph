@@ -259,4 +259,15 @@ export function Session() {
     expect(text).toContain('## CodeGraph Status');
     expect(text).toContain('**Version:** test-version');
   });
+
+  it('supports importing SCIP semantic data', async () => {
+    const scipPath = path.join(testDir, 'index.scip.json');
+    fs.writeFileSync(scipPath, JSON.stringify({ documents: [] }), 'utf-8');
+
+    const result = await tools.execute('import_scip', { path: scipPath });
+    const text = result.content[0]?.text ?? '';
+
+    expect(text).toContain('## SCIP Import Complete');
+    expect(text).toContain('Imported edges: 0');
+  });
 });

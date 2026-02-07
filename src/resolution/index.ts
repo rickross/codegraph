@@ -104,18 +104,18 @@ export class ReferenceResolver {
       },
 
       getNodesByName: (name: string) => {
-        // Use cache if available, otherwise fall back to DB query
-        if (this.nameCache.has(name)) {
-          return this.nameCache.get(name)!;
-        }
+        // Bypassing cache - using DB query directly
+        // if (this.nameCache.has(name)) {
+        //   return this.nameCache.get(name)!;
+        // }
         return this.queries.searchNodes(name, { limit: 100 }).map((r) => r.node);
       },
 
       getNodesByQualifiedName: (qualifiedName: string) => {
-        // Use cache if available, otherwise fall back to DB query
-        if (this.qualifiedNameCache.has(qualifiedName)) {
-          return this.qualifiedNameCache.get(qualifiedName)!;
-        }
+        // Bypassing cache - using DB query directly
+        // if (this.qualifiedNameCache.has(qualifiedName)) {
+        //   return this.qualifiedNameCache.get(qualifiedName)!;
+        // }
         // Search for exact qualified name match
         return this.queries
           .searchNodes(qualifiedName, { limit: 50 })
@@ -321,7 +321,7 @@ export class ReferenceResolver {
   /**
    * Resolve a single reference
    */
-  resolveOne(ref: UnresolvedRef): ResolvedRef | null {
+   resolveOne(ref: UnresolvedRef): ResolvedRef | null {
     // Skip built-in/external references
     if (this.isBuiltInOrExternal(ref)) {
       return null;

@@ -573,6 +573,14 @@ export class QueryBuilder {
   }
 
   /**
+   * Delete edges from a source node of a specific kind
+   */
+  deleteEdgesBySourceAndKind(sourceId: string, kind: string): void {
+    // Use ad-hoc prepared statement since kind varies
+    this.db.prepare('DELETE FROM edges WHERE source = ? AND kind = ?').run(sourceId, kind);
+  }
+
+  /**
    * Get outgoing edges from a node
    */
   getOutgoingEdges(sourceId: string, kinds?: EdgeKind[]): Edge[] {

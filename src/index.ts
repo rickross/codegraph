@@ -7,6 +7,7 @@
  */
 
 import * as path from 'path';
+import * as os from 'os';
 import {
   CodeGraphConfig,
   Node,
@@ -324,6 +325,13 @@ export class CodeGraph {
     this.db.close();
   }
 
+  /**
+   * TEMPORARY DEBUG: Get raw DB access
+   */
+  _getDbForDebug(): any {
+    return this.db.getDb();
+  }
+
   // ===========================================================================
   // Configuration
   // ===========================================================================
@@ -449,7 +457,7 @@ export class CodeGraph {
    * - Name-based symbol matching
    */
   async resolveReferences(
-    numWorkers: number = 4,
+    numWorkers: number = Math.max(1, os.cpus().length - 1),
     onProgress?: (current: number, total: number) => void
   ): Promise<ResolutionResult> {
     // Get all unresolved references from the database
@@ -472,15 +480,35 @@ export class CodeGraph {
     // Create edges in main thread
     const edges = this.resolver.createEdges(result.resolved);
     
+    // Deduplicate edges before insertion
+    // Key: source|target|kind|line|col|metadata
+    const seen = new Set<string>();
+    const dedupedEdges = edges.filter((edge) => {
+      const metadata = edge.metadata ? JSON.stringify(edge.metadata) : '';
+      const key = `${edge.source}|${edge.target}|${edge.kind}|${edge.line}|${edge.column}|${metadata}`;
+      if (seen.has(key)) {
+        return false; // Skip duplicate
+      }
+      seen.add(key);
+      return true;
+    });
+    
     // Delete old resolved edges before inserting new ones (prevents duplicates)
-    const sourceIds = new Set(edges.map(e => e.source));
-    for (const sourceId of sourceIds) {
-      this.queries.deleteEdgesBySource(sourceId);
+    // IMPORTANT: Only delete edges of the same kind we're about to insert to preserve
+    // extraction-time edges (contains, extends, implements)
+    const sourceKindPairs = new Set<string>();
+    for (const edge of dedupedEdges) {
+      sourceKindPairs.add(`${edge.source}:${edge.kind}`);
+    }
+    
+    for (const pair of sourceKindPairs) {
+      const [sourceId, kind] = pair.split(':');
+      this.queries.deleteEdgesBySourceAndKind(sourceId, kind);
     }
     
     // Insert new edges
-    if (edges.length > 0) {
-      this.queries.insertEdges(edges);
+    if (dedupedEdges.length > 0) {
+      this.queries.insertEdges(dedupedEdges);
     }
     
     return result;

@@ -141,7 +141,29 @@ export function scanDirectory(
       const fullPath = path.join(dir, entry.name);
       const relativePath = path.relative(rootDir, fullPath);
 
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() || entry.isSymbolicLink()) {
+        // For symlinks, check if they point to a directory or file
+        if (entry.isSymbolicLink()) {
+          try {
+            const stat = fs.statSync(fullPath);
+            if (!stat.isDirectory()) {
+              // Symlink to a file — treat as file
+              if (stat.isFile() && shouldIncludeFile(relativePath, config)) {
+                files.push(relativePath);
+                count++;
+                if (onProgress) {
+                  onProgress(count, relativePath);
+                }
+              }
+              continue;
+            }
+            // If it's a symlink to a directory, fall through to directory handling
+          } catch {
+            logDebug('Skipping broken symlink', { path: fullPath });
+            continue;
+          }
+        }
+
         // Check if directory should be excluded
         const dirPattern = relativePath + '/';
         let excluded = false;
@@ -328,10 +350,15 @@ export class ExtractionOrchestrator {
     for (let i = 0; i < filePaths.length; i += BATCH_SIZE) {
       const batch = filePaths.slice(i, i + BATCH_SIZE);
       
-      // Read files in parallel (I/O bound)
-      const results = await Promise.all(
-        batch.map(filePath => this.indexFile(filePath))
-      );
+      // TEMPORARY: Process sequentially to avoid DB race conditions with parallel edge inserts
+      // TODO: Re-enable parallel processing with proper transaction handling
+      // const results = await Promise.all(
+      //   batch.map(filePath => this.indexFile(filePath))
+      // );
+      const results = [];
+      for (const filePath of batch) {
+        results.push(await this.indexFile(filePath));
+      }
 
       // Accumulate results
       for (const result of results) {
@@ -461,7 +488,18 @@ export class ExtractionOrchestrator {
 
     // Insert unresolved references (batch for performance)
     if (result.unresolvedReferences.length > 0) {
-      this.queries.insertUnresolvedRefsBatch(result.unresolvedReferences);
+      // Deduplicate unresolved refs before insertion
+      // Key: fromNodeId|referenceName|referenceKind|line|column|filePath|language
+      const seen = new Set<string>();
+      const dedupedRefs = result.unresolvedReferences.filter((ref) => {
+        const key = `${ref.fromNodeId}|${ref.referenceName}|${ref.referenceKind}|${ref.line}|${ref.column}|${ref.filePath}|${ref.language}`;
+        if (seen.has(key)) {
+          return false; // Skip duplicate
+        }
+        seen.add(key);
+        return true;
+      });
+      this.queries.insertUnresolvedRefsBatch(dedupedRefs);
     }
 
     // Insert file record

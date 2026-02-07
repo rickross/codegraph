@@ -45,17 +45,18 @@ export const reactResolver: FrameworkResolver = {
     }
 
     // Pattern 2: Hook references (use*)
-    if (ref.referenceName.startsWith('use') && ref.referenceName.length > 3) {
-      const result = resolveHook(ref.referenceName, context);
-      if (result) {
-        return {
-          original: ref,
-          targetNodeId: result,
-          confidence: 0.85,
-          resolvedBy: 'framework',
-        };
-      }
-    }
+    // DISABLED: Let hooks fall through to import resolution for better accuracy
+    // if (ref.referenceName.startsWith('use') && ref.referenceName.length > 3) {
+    //   const result = resolveHook(ref.referenceName, context);
+    //   if (result) {
+    //     return {
+    //       original: ref,
+    //       targetNodeId: result,
+    //       confidence: 0.85,
+    //       resolvedBy: 'framework',
+    //     };
+    //   }
+    // }
 
     // Pattern 3: Context references
     if (ref.referenceName.endsWith('Context') || ref.referenceName.endsWith('Provider')) {
@@ -245,9 +246,12 @@ function resolveComponent(
 }
 
 /**
- * Resolve a custom hook reference
+ * Resolve hook references
+ * DISABLED: Temporarily unused while hooks use import resolution
  */
+// @ts-ignore - temporarily disabled
 function resolveHook(name: string, context: ResolutionContext): string | null {
+  // Priority 1: Check common hook directories
   const hookDirs = ['hooks', 'src/hooks', 'lib/hooks', 'utils/hooks'];
 
   for (const dir of hookDirs) {
@@ -265,7 +269,8 @@ function resolveHook(name: string, context: ResolutionContext): string | null {
 
   // Also check all files for the hook
   const allNodes = context.getNodesByName(name);
-  const hookNode = allNodes.find((n) => n.kind === 'function' && n.name.startsWith('use'));
+  // FIX: Check for exact name match, not just startsWith('use')
+  const hookNode = allNodes.find((n) => n.kind === 'function' && n.name === name);
   if (hookNode) {
     return hookNode.id;
   }

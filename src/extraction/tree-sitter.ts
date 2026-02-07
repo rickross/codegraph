@@ -675,6 +675,7 @@ export class TreeSitterExtractor {
   private errors: ExtractionError[] = [];
   private extractor: LanguageExtractor | null = null;
   private nodeStack: string[] = []; // Stack of parent node IDs
+  private fileNodeId: string | null = null;
 
   constructor(filePath: string, source: string, language?: Language) {
     this.filePath = filePath;
@@ -722,7 +723,11 @@ export class TreeSitterExtractor {
 
     try {
       this.tree = parser.parse(this.source);
+      const fileNode = this.createFileNode();
+      this.fileNodeId = fileNode.id;
+      this.nodeStack.push(fileNode.id);
       this.visitNode(this.tree.rootNode);
+      this.nodeStack.pop();
     } catch (error) {
       this.errors.push({
         message: `Parse error: ${error instanceof Error ? error.message : String(error)}`,
@@ -748,10 +753,15 @@ export class TreeSitterExtractor {
     const nodeType = node.type;
     let skipChildren = false;
 
+    // Handle variable-assigned function expressions (e.g. const fn = () => {})
+    if (nodeType === 'variable_declarator' && this.extractFunctionVariable(node)) {
+      skipChildren = true;
+    }
+
     // Check for function declarations
     // For Python/Ruby, function_definition inside a class should be treated as method
     if (this.extractor.functionTypes.includes(nodeType)) {
-      if (this.nodeStack.length > 0 && this.extractor.methodTypes.includes(nodeType)) {
+      if (this.isInsideTypeContainer() && this.extractor.methodTypes.includes(nodeType)) {
         // Inside a class - treat as method
         this.extractMethod(node);
         skipChildren = true; // extractMethod visits children via visitFunctionBody
@@ -857,6 +867,28 @@ export class TreeSitterExtractor {
   }
 
   /**
+   * Create a file node to anchor top-level containment and imports.
+   */
+  private createFileNode(): Node {
+    const lines = this.source.split('\n');
+    const fileNode: Node = {
+      id: generateNodeId(this.filePath, 'file', this.filePath, 1),
+      kind: 'file',
+      name: this.filePath.split('/').pop() || this.filePath,
+      qualifiedName: this.filePath,
+      filePath: this.filePath,
+      language: this.language,
+      startLine: 1,
+      endLine: lines.length,
+      startColumn: 0,
+      endColumn: lines[lines.length - 1]?.length ?? 0,
+      updatedAt: Date.now(),
+    };
+    this.nodes.push(fileNode);
+    return fileNode;
+  }
+
+  /**
    * Build qualified name from node stack
    */
   private buildQualifiedName(name: string): string {
@@ -883,6 +915,25 @@ export class TreeSitterExtractor {
       }
     }
     return false;
+  }
+
+  /**
+   * Check whether the current traversal context is inside a type-like container.
+   */
+  private isInsideTypeContainer(): boolean {
+    const parentId = this.nodeStack[this.nodeStack.length - 1];
+    if (!parentId) return false;
+
+    const parentNode = this.nodes.find((n) => n.id === parentId);
+    if (!parentNode) return false;
+
+    return (
+      parentNode.kind === 'class' ||
+      parentNode.kind === 'struct' ||
+      parentNode.kind === 'interface' ||
+      parentNode.kind === 'trait' ||
+      parentNode.kind === 'protocol'
+    );
   }
 
   /**
@@ -917,6 +968,62 @@ export class TreeSitterExtractor {
       this.visitFunctionBody(body, funcNode.id);
     }
     this.nodeStack.pop();
+  }
+
+  /**
+   * Extract variable-assigned function expressions and arrow functions.
+   */
+  private extractFunctionVariable(node: SyntaxNode): boolean {
+    if (!this.extractor) return false;
+
+    const valueNode = getChildByField(node, 'value') || node.namedChild(1);
+    if (!valueNode) return false;
+
+    if (valueNode.type !== 'arrow_function' && valueNode.type !== 'function_expression') {
+      return false;
+    }
+
+    const nameNode = getChildByField(node, 'name') || node.namedChild(0);
+    if (!nameNode) return false;
+
+    const name = getNodeText(nameNode, this.source).trim();
+    if (!name || name === '<anonymous>') return false;
+
+    const docstring = getPrecedingDocstring(node, this.source);
+    const signature = this.extractor.getSignature?.(valueNode, this.source);
+    const isAsync = this.extractor.isAsync?.(valueNode) ?? this.extractor.isAsync?.(node);
+    const isExported = this.isVariableExported(node);
+
+    const funcNode = this.createNode('function', name, node, {
+      docstring,
+      signature,
+      isAsync,
+      isExported,
+    });
+
+    this.nodeStack.push(funcNode.id);
+    const body = getChildByField(valueNode, this.extractor.bodyField);
+    if (body) {
+      this.visitFunctionBody(body, funcNode.id);
+    }
+    this.nodeStack.pop();
+
+    return true;
+  }
+
+  /**
+   * Check whether a variable declaration is exported.
+   */
+  private isVariableExported(node: SyntaxNode): boolean {
+    let current: SyntaxNode | null = node;
+    while (current) {
+      if (current.type === 'export_statement') {
+        return true;
+      }
+      current = current.parent;
+    }
+    const prefix = this.source.substring(Math.max(0, node.startIndex - 20), node.startIndex);
+    return prefix.includes('export');
   }
 
   /**
@@ -961,7 +1068,7 @@ export class TreeSitterExtractor {
 
     // For most languages, only extract as method if inside a class
     // But Go methods are top-level with a receiver, so always treat them as methods
-    if (this.nodeStack.length === 0 && this.language !== 'go') {
+    if (!this.isInsideTypeContainer() && this.language !== 'go') {
       // Top-level and not Go, treat as function
       this.extractFunction(node);
       return;
@@ -1069,7 +1176,12 @@ export class TreeSitterExtractor {
     // Extract module/package name based on language
     let moduleName = '';
 
-    if (this.language === 'typescript' || this.language === 'javascript') {
+    if (
+      this.language === 'typescript' ||
+      this.language === 'javascript' ||
+      this.language === 'tsx' ||
+      this.language === 'jsx'
+    ) {
       const source = getChildByField(node, 'source');
       if (source) {
         moduleName = getNodeText(source, this.source).replace(/['"]/g, '');
@@ -1089,19 +1201,16 @@ export class TreeSitterExtractor {
       moduleName = importText;
     }
 
-    if (moduleName && this.nodeStack.length > 0) {
-      const parentId = this.nodeStack[this.nodeStack.length - 1];
-      if (parentId) {
-        this.unresolvedReferences.push({
-          fromNodeId: parentId,
-          referenceName: moduleName,
-          referenceKind: 'imports',
-          line: node.startPosition.row + 1,
-          column: node.startPosition.column,
-          filePath: this.filePath,
-          language: this.language,
-        });
-      }
+    if (moduleName && this.fileNodeId) {
+      this.unresolvedReferences.push({
+        fromNodeId: this.fileNodeId,
+        referenceName: moduleName,
+        referenceKind: 'imports',
+        line: node.startPosition.row + 1,
+        column: node.startPosition.column,
+        filePath: this.filePath,
+        language: this.language,
+      });
     }
   }
 
@@ -1113,6 +1222,7 @@ export class TreeSitterExtractor {
 
     const callerId = this.nodeStack[this.nodeStack.length - 1];
     if (!callerId) return;
+    if (callerId === this.fileNodeId) return;
 
     // Get the function/method being called
     let calleeName = '';

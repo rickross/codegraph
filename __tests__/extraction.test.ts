@@ -122,14 +122,30 @@ export function processPayment(amount: number): Promise<Receipt> {
 `;
     const result = extractFromSource('payment.ts', code);
 
-    expect(result.nodes).toHaveLength(1);
-    expect(result.nodes[0]).toMatchObject({
+    const funcNode = result.nodes.find((n) => n.kind === 'function');
+    expect(funcNode).toBeDefined();
+    expect(funcNode).toMatchObject({
       kind: 'function',
       name: 'processPayment',
       language: 'typescript',
       isExported: true,
     });
-    expect(result.nodes[0]?.signature).toContain('amount: number');
+    expect(funcNode?.signature).toContain('amount: number');
+  });
+
+  it('should extract arrow functions assigned to variables', () => {
+    const code = `
+export const parseAmount = (value: string): number => {
+  return Number(value);
+};
+`;
+    const result = extractFromSource('parser.ts', code);
+
+    const funcNode = result.nodes.find(
+      (n) => n.kind === 'function' && n.name === 'parseAmount'
+    );
+    expect(funcNode).toBeDefined();
+    expect(funcNode?.isExported).toBe(true);
   });
 
   it('should extract class declarations', () => {
@@ -170,8 +186,9 @@ export interface User {
 `;
     const result = extractFromSource('types.ts', code);
 
-    expect(result.nodes).toHaveLength(1);
-    expect(result.nodes[0]).toMatchObject({
+    const interfaceNode = result.nodes.find((n) => n.kind === 'interface');
+    expect(interfaceNode).toBeDefined();
+    expect(interfaceNode).toMatchObject({
       kind: 'interface',
       name: 'User',
       isExported: true,
@@ -191,6 +208,27 @@ function main() {
     const calls = result.unresolvedReferences.filter((r) => r.referenceKind === 'calls');
     expect(calls.some((c) => c.referenceName === 'processData')).toBe(true);
   });
+
+  it('should track top-level imports from the file node', () => {
+    const code = `
+import { helper } from './helper';
+
+export function main() {
+  return helper();
+}
+`;
+    const result = extractFromSource('main.ts', code);
+
+    const fileNode = result.nodes.find((n) => n.kind === 'file');
+    expect(fileNode).toBeDefined();
+
+    const importRefs = result.unresolvedReferences.filter((r) => r.referenceKind === 'imports');
+    expect(
+      importRefs.some(
+        (r) => r.fromNodeId === fileNode?.id && r.referenceName === './helper'
+      )
+    ).toBe(true);
+  });
 });
 
 describe('Python Extraction', () => {
@@ -203,8 +241,9 @@ def calculate_total(items: list, tax_rate: float) -> float:
 `;
     const result = extractFromSource('calc.py', code);
 
-    expect(result.nodes).toHaveLength(1);
-    expect(result.nodes[0]).toMatchObject({
+    const funcNode = result.nodes.find((n) => n.kind === 'function');
+    expect(funcNode).toBeDefined();
+    expect(funcNode).toMatchObject({
       kind: 'function',
       name: 'calculate_total',
       language: 'python',

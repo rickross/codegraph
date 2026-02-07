@@ -45,18 +45,17 @@ export const reactResolver: FrameworkResolver = {
     }
 
     // Pattern 2: Hook references (use*)
-    // DISABLED: Let hooks fall through to import resolution for better accuracy
-    // if (ref.referenceName.startsWith('use') && ref.referenceName.length > 3) {
-    //   const result = resolveHook(ref.referenceName, context);
-    //   if (result) {
-    //     return {
-    //       original: ref,
-    //       targetNodeId: result,
-    //       confidence: 0.85,
-    //       resolvedBy: 'framework',
-    //     };
-    //   }
-    // }
+    if (ref.referenceName.startsWith('use') && ref.referenceName.length > 3) {
+      const result = resolveHook(ref.referenceName, context);
+      if (result) {
+        return {
+          original: ref,
+          targetNodeId: result,
+          confidence: 0.85,
+          resolvedBy: 'framework',
+        };
+      }
+    }
 
     // Pattern 3: Context references
     if (ref.referenceName.endsWith('Context') || ref.referenceName.endsWith('Provider')) {

@@ -1,4 +1,3 @@
-// @ts-nocheck - DEBUG logging commented out
 /**
  * CodeGraph
  *
@@ -322,14 +321,8 @@ export class CodeGraph {
    * Close the CodeGraph instance and release resources
    */
   close(): void {
+    this.vectorManager?.dispose();
     this.db.close();
-  }
-
-  /**
-   * TEMPORARY DEBUG: Get raw DB access
-   */
-  _getDbForDebug(): any {
-    return this.db.getDb();
   }
 
   // ===========================================================================
@@ -390,7 +383,7 @@ export class CodeGraph {
             total,
           });
         };
-        await this.resolveReferences(undefined, resolutionProgress);
+        await this.resolveReferences(Math.max(1, os.cpus().length - 1), resolutionProgress);
         
         // Add resolution timing to result
         const resolutionTime = Date.now() - resolutionStart;
@@ -433,7 +426,7 @@ export class CodeGraph {
       // Resolve references if files were updated
       // Cache optimization makes full resolution fast even with 20K+ refs
       if (result.filesAdded > 0 || result.filesModified > 0) {
-        this.resolveReferences();
+        await this.resolveReferences();
       }
 
       return result;
@@ -480,24 +473,29 @@ export class CodeGraph {
   ): Promise<ResolutionResult> {
     // Get all unresolved references from the database
     const unresolvedRefs = this.queries.getUnresolvedReferences();
-    
-    // Call resolveAllParallel directly and handle DB writes here
-    const result = await this.resolver.resolveAllParallel(unresolvedRefs, numWorkers, onProgress);
-    
-    // Re-establish DB connection if needed (workers may have interfered with it)
-    // better-sqlite3 doesn't handle worker threads well
-    if (!this.connection || !this.connection.isOpen()) {
-      if (this.connection) {
-        console.warn('DB connection closed after workers, reconnecting...');
-      }
-      const dbPath = getDatabasePath(this.projectRoot);
-      this.connection = DatabaseConnection.open(dbPath);
-      this.queries = new QueryBuilder(this.connection.getDb());
+
+    if (unresolvedRefs.length === 0) {
+      return {
+        resolved: [],
+        unresolved: [],
+        stats: {
+          total: 0,
+          resolved: 0,
+          unresolved: 0,
+          byMethod: {},
+        },
+      };
     }
-    
-    // Create edges in main thread
+
+    // Resolve refs first, then mutate edges in the main thread.
+    const result = await this.resolver.resolveAllParallel(
+      unresolvedRefs,
+      Math.max(1, Math.floor(numWorkers)),
+      onProgress
+    );
+
     const edges = this.resolver.createEdges(result.resolved);
-    
+
     // Deduplicate edges before insertion
     // Key: source|target|kind|line|col|metadata
     const seen = new Set<string>();
@@ -510,26 +508,37 @@ export class CodeGraph {
       seen.add(key);
       return true;
     });
-    
-    // Delete old resolved edges before inserting new ones (prevents duplicates)
-    // IMPORTANT: Only delete edges of the same kind we're about to insert to preserve
-    // extraction-time edges (contains, extends, implements)
-    const sourceKindPairs = new Set<string>();
+
+    // Delete old resolved edges for each source+kind before inserting new ones.
+    const sourceKinds = new Map<string, Set<string>>();
     for (const edge of dedupedEdges) {
-      sourceKindPairs.add(`${edge.source}:${edge.kind}`);
+      let kinds = sourceKinds.get(edge.source);
+      if (!kinds) {
+        kinds = new Set<string>();
+        sourceKinds.set(edge.source, kinds);
+      }
+      kinds.add(edge.kind);
     }
-    
-    for (const pair of sourceKindPairs) {
-      const [sourceId, kind] = pair.split(':');
-      this.queries.deleteEdgesBySourceAndKind(sourceId, kind);
+
+    for (const [sourceId, kinds] of sourceKinds) {
+      for (const kind of kinds) {
+        this.queries.deleteEdgesBySourceAndKind(sourceId, kind);
+      }
     }
-    
+
     // Insert new edges
     if (dedupedEdges.length > 0) {
       this.queries.insertEdges(dedupedEdges);
     }
     
     return result;
+  }
+
+  /**
+   * Get framework resolvers detected for this project.
+   */
+  getDetectedFrameworks(): string[] {
+    return this.resolver.getDetectedFrameworks();
   }
 
   /**

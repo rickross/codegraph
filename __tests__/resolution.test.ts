@@ -478,7 +478,7 @@ function main(): void {
       cg = await CodeGraph.init(tempDir, { index: true });
 
       // Run reference resolution
-      const result = cg.resolveReferences();
+      const result = await cg.resolveReferences();
 
       // Should have attempted resolution
       expect(result.stats.total).toBeGreaterThanOrEqual(0);

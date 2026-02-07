@@ -122,7 +122,7 @@ export { main };
     });
 
     await cg.indexAll();
-    cg.resolveReferences();
+    await cg.resolveReferences();
   });
 
   afterEach(() => {

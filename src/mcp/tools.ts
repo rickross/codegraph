@@ -324,6 +324,8 @@ export const tools: ToolDefinition[] = [
  * Tool handler that executes tools against a CodeGraph instance
  */
 export class ToolHandler {
+  private lastRootBanner: string | null = null;
+
   constructor(private cg: CodeGraph) {}
 
   /**
@@ -393,7 +395,7 @@ export class ToolHandler {
           includeFiles,
         });
 
-        if (this.shouldUseNarrowedSearchResults(query, results, narrowed)) {
+        if (this.shouldUseNarrowedSearchResults(query, results, narrowed, inferredPathHint)) {
           results = narrowed;
           autoNarrowNotes.push(`pathHint=${inferredPathHint}`);
         }
@@ -402,11 +404,13 @@ export class ToolHandler {
 
     if (results.length === 0) {
       return this.textResult(
-        this.formatSearchNoResults(query, {
-          kind,
-          pathHint,
-          intent: exploratorySearch ? 'discovery' : 'focused',
-        })
+        this.withRootBanner(
+          this.formatSearchNoResults(query, {
+            kind,
+            pathHint,
+            intent: exploratorySearch ? 'discovery' : 'focused',
+          })
+        )
       );
     }
 
@@ -416,7 +420,7 @@ export class ToolHandler {
       prefixLines.push(`ℹ Auto-narrowed search: ${autoNarrowNotes.join(', ')}`);
     }
     const prefix = prefixLines.length > 0 ? `${prefixLines.join('\n')}\n\n` : '';
-    return this.textResult(prefix + formatted);
+    return this.textResult(this.withRootBanner(prefix + formatted));
   }
 
   /**
@@ -464,11 +468,14 @@ export class ToolHandler {
 
     // buildContext returns string when format is 'markdown'
     if (typeof context === 'string') {
-      return this.textResult(scopePrefix + context + reminder);
+      const flowHint = this.buildFlowCoverageHint(task, context);
+      return this.textResult(this.withRootBanner(scopePrefix + context + reminder + flowHint));
     }
 
     // If it returns TaskContext, format it
-    return this.textResult(scopePrefix + this.formatTaskContext(context) + reminder);
+    const formattedContext = this.formatTaskContext(context);
+    const flowHint = this.buildFlowCoverageHint(task, formattedContext);
+    return this.textResult(this.withRootBanner(scopePrefix + formattedContext + reminder + flowHint));
   }
 
   /**
@@ -599,20 +606,20 @@ export class ToolHandler {
 
     const resolved = this.resolveSymbolNode(symbol, kind, pathHint);
     if (!resolved.node) {
-      return this.textResult(resolved.message ?? `Symbol "${symbol}" not found in the codebase`);
+      return this.textResult(this.withRootBanner(resolved.message ?? `Symbol "${symbol}" not found in the codebase`));
     }
 
     const node = resolved.node;
     const callers = this.cg.getCallers(node.id);
 
     if (callers.length === 0) {
-      return this.textResult(this.formatNoCallersFound(symbol, kind, pathHint));
+      return this.textResult(this.withRootBanner(this.formatNoCallersFound(symbol, kind, pathHint)));
     }
 
     // Extract just the nodes from the { node, edge } tuples
     const callerNodes = callers.slice(0, limit).map(c => c.node);
     const formatted = this.formatNodeList(callerNodes, `Callers of ${symbol}`);
-    return this.textResult(formatted);
+    return this.textResult(this.withRootBanner(formatted));
   }
 
   /**
@@ -626,20 +633,20 @@ export class ToolHandler {
 
     const resolved = this.resolveSymbolNode(symbol, kind, pathHint);
     if (!resolved.node) {
-      return this.textResult(resolved.message ?? `Symbol "${symbol}" not found in the codebase`);
+      return this.textResult(this.withRootBanner(resolved.message ?? `Symbol "${symbol}" not found in the codebase`));
     }
 
     const node = resolved.node;
     const callees = this.cg.getCallees(node.id);
 
     if (callees.length === 0) {
-      return this.textResult(this.formatNoCalleesFound(symbol, kind, pathHint));
+      return this.textResult(this.withRootBanner(this.formatNoCalleesFound(symbol, kind, pathHint)));
     }
 
     // Extract just the nodes from the { node, edge } tuples
     const calleeNodes = callees.slice(0, limit).map(c => c.node);
     const formatted = this.formatNodeList(calleeNodes, `Callees of ${symbol}`);
-    return this.textResult(formatted);
+    return this.textResult(this.withRootBanner(formatted));
   }
 
   /**
@@ -653,14 +660,14 @@ export class ToolHandler {
 
     const resolved = this.resolveSymbolNode(symbol, kind, pathHint);
     if (!resolved.node) {
-      return this.textResult(resolved.message ?? `Symbol "${symbol}" not found in the codebase`);
+      return this.textResult(this.withRootBanner(resolved.message ?? `Symbol "${symbol}" not found in the codebase`));
     }
 
     const node = resolved.node;
     const impact = this.cg.getImpactRadius(node.id, depth);
 
     const formatted = this.formatImpact(symbol, impact);
-    return this.textResult(formatted);
+    return this.textResult(this.withRootBanner(formatted));
   }
 
   /**
@@ -675,7 +682,7 @@ export class ToolHandler {
 
     const resolved = this.resolveSymbolNode(symbol, kind, pathHint);
     if (!resolved.node) {
-      return this.textResult(resolved.message ?? `Symbol "${symbol}" not found in the codebase`);
+      return this.textResult(this.withRootBanner(resolved.message ?? `Symbol "${symbol}" not found in the codebase`));
     }
 
     const node = resolved.node;
@@ -686,7 +693,7 @@ export class ToolHandler {
     }
 
     const formatted = this.formatNodeDetails(node, code);
-    return this.textResult(formatted);
+    return this.textResult(this.withRootBanner(formatted));
   }
 
   private resolveSymbolNode(
@@ -718,30 +725,7 @@ export class ToolHandler {
     }
 
     if (exactMatches.length > 1) {
-      if (!kind && !hint) {
-        const inferredPathHint = this.inferPathHintFromSearchResults(symbol, exactMatches);
-        if (inferredPathHint) {
-          const narrowed = this.cg.searchNodes(symbol, {
-            limit: 25,
-            kinds: kind ? [kind as NodeKind] : undefined,
-            includePatterns: [`*${inferredPathHint}*`],
-          });
-          const narrowedExact = narrowed.filter(
-            (r) => r.node.name.toLowerCase() === normalizedSymbol
-          );
-          if (narrowedExact.length === 1) {
-            return { node: narrowedExact[0]!.node };
-          }
-        }
-      }
-
       const sortedExact = [...exactMatches].sort((a, b) => b.score - a.score);
-      const top = sortedExact[0]!;
-      const second = sortedExact[1];
-      // Autopick only when confidence is very high and user did not provide disambiguation hints.
-      if (!kind && !hint && second && top.score - second.score >= 0.3) {
-        return { node: top.node };
-      }
       return { message: this.formatAmbiguousSymbol(symbol, sortedExact) };
     }
 
@@ -883,7 +867,9 @@ export class ToolHandler {
           let score =
             result.score *
             this.pathQualityMultiplier(result.node.filePath) *
+            this.intentPathMultiplier(result.node.filePath, terms) *
             this.pathQualityMultiplier(subpath) *
+            this.intentPathMultiplier(subpath, terms) *
             (1 + (len - 2) * 0.25);
           if (terms.some((term) => subpath.includes(term))) {
             score *= 1.35;
@@ -929,7 +915,11 @@ export class ToolHandler {
     for (const result of candidates) {
       const node = result.node;
       const hint = this.suggestPathHint(node.filePath);
-      let score = result.score * this.pathQualityMultiplier(node.filePath);
+      let score =
+        result.score *
+        this.pathQualityMultiplier(node.filePath) *
+        this.intentPathMultiplier(node.filePath, terms) *
+        this.intentPathMultiplier(hint, terms);
       if (exactMatches.includes(result)) score *= 1.25;
       if (terms.some((term) => hint.includes(term))) score *= 1.2;
 
@@ -960,13 +950,15 @@ export class ToolHandler {
   private shouldUseNarrowedSearchResults(
     query: string,
     original: SearchResult[],
-    narrowed: SearchResult[]
+    narrowed: SearchResult[],
+    inferredPathHint?: string
   ): boolean {
     if (narrowed.length === 0) return false;
 
     const normalizedQuery = query.trim().toLowerCase();
     const originalExact = original.filter((r) => r.node.name.toLowerCase() === normalizedQuery).length;
     const narrowedExact = narrowed.filter((r) => r.node.name.toLowerCase() === normalizedQuery).length;
+    const genericHint = this.isGenericPathHint(inferredPathHint);
 
     if (originalExact > 1 && narrowedExact === 1) {
       return true;
@@ -978,6 +970,10 @@ export class ToolHandler {
 
     const originalQuality = this.pathQualityMultiplier(originalTop.node.filePath);
     const narrowedQuality = this.pathQualityMultiplier(narrowedTop.node.filePath);
+    if (genericHint) {
+      if (narrowedExact !== 1) return false;
+      if (narrowedQuality <= originalQuality + 0.35) return false;
+    }
 
     if (narrowedQuality > originalQuality + 0.2 && narrowedTop.score >= originalTop.score * 0.75) {
       return true;
@@ -1063,6 +1059,115 @@ export class ToolHandler {
     return terms.some((term) => infraTerms.has(term));
   }
 
+  private isFlowTraceIntent(terms: string[]): boolean {
+    const flowTerms = new Set([
+      'trace',
+      'flow',
+      'input',
+      'submit',
+      'route',
+      'routes',
+      'handler',
+      'server',
+      'session',
+      'prompt',
+      'stream',
+      'update',
+      'event',
+      'tui',
+    ]);
+    return terms.some((term) => flowTerms.has(term));
+  }
+
+  private intentPathMultiplier(pathValue: string, terms: string[]): number {
+    if (terms.length === 0 || this.hasInfraIntent(terms)) {
+      return 1.0;
+    }
+
+    const value = pathValue.toLowerCase();
+    let multiplier = 1.0;
+
+    if (this.isFlowTraceIntent(terms)) {
+      if (/(^|\/)(sdk|acp)(\/|$)/.test(value) || value.includes('/provider/sdk/')) {
+        multiplier *= 0.55;
+      }
+      if (/(^|\/)(cli|tui|server|routes|session|bus|event)(\/|$)/.test(value)) {
+        multiplier *= 1.18;
+      }
+    }
+
+    return Math.max(0.35, Math.min(1.4, multiplier));
+  }
+
+  private isGenericPathHint(pathHint?: string): boolean {
+    if (!pathHint) return false;
+    const normalized = pathHint.toLowerCase().trim();
+    if (!normalized) return true;
+    if (!normalized.includes('/')) {
+      return true;
+    }
+
+    const genericSegments = new Set([
+      'src',
+      'app',
+      'core',
+      'lib',
+      'sdk',
+      'acp',
+      'server',
+      'client',
+      'session',
+      'routes',
+      'tui',
+      'utils',
+      'util',
+    ]);
+    const segments = normalized.split('/').filter(Boolean);
+    return segments.length < 2 || segments.every((segment) => genericSegments.has(segment));
+  }
+
+  private buildFlowCoverageHint(task: string, contextText: string): string {
+    const terms = this.extractQueryTerms(task);
+    if (!this.isFlowTraceIntent(terms)) {
+      return '';
+    }
+
+    const lower = contextText.toLowerCase();
+    const hasIngress = /(input|submit|route|handler|request|prompt)/.test(lower);
+    const hasProcessing = /(session|prompt|loop|process|stream|llm|provider)/.test(lower);
+    const hasEgress = /(event|emit|update|render|response|sync|message\.part\.updated)/.test(lower);
+
+    const missing: string[] = [];
+    if (!hasIngress) missing.push('ingress');
+    if (!hasProcessing) missing.push('processing');
+    if (!hasEgress) missing.push('egress');
+
+    if (missing.length === 0) {
+      return '\n\nℹ Coverage: ingress, processing, and egress evidence present.';
+    }
+
+    const suggestions: string[] = [];
+    if (!hasIngress) suggestions.push('search(query="submit input route", kind="function", pathHint="server/routes", limit=10)');
+    if (!hasProcessing) suggestions.push('search(query="prompt loop stream", kind="function", pathHint="session", limit=10)');
+    if (!hasEgress) suggestions.push('search(query="event emit update", kind="function", pathHint="tui", limit=10)');
+
+    return [
+      '',
+      `ℹ Coverage gap: missing ${missing.join(', ')} evidence.`,
+      'Suggested follow-ups:',
+      ...suggestions.map((item) => `- ${item}`),
+    ].join('\n');
+  }
+
+  private withRootBanner(text: string): string {
+    const root = this.cg.getProjectRoot();
+    if (!root) return text;
+    if (this.lastRootBanner === root) return text;
+
+    this.lastRootBanner = root;
+    return `ℹ Root: ${root}\n\n${text}`;
+  }
+
   private suggestPathHint(filePath: string): string {
     const segments = filePath.split('/').filter(Boolean);
     if (segments.length <= 2) return filePath;
@@ -1084,6 +1189,7 @@ export class ToolHandler {
     const lines: string[] = [
       '## CodeGraph Status',
       '',
+      `**Root:** ${this.cg.getProjectRoot()}`,
       `**Files indexed:** ${stats.fileCount}`,
       `**Total nodes:** ${stats.nodeCount}`,
       `**Total edges:** ${stats.edgeCount}`,
